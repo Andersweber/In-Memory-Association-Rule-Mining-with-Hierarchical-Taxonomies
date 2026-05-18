@@ -248,7 +248,7 @@ python Benchmark.py Data/samples/100000 \
 
 ## Output
 
-All results are written under `--output-dir` (default `benchmark_results/`):
+All results are written under the directory you pass to `--output-dir`:
 
 ```
 benchmark_results/

@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c ' *)",
+      "Bash(python -c \"import ast; ast.parse\\(open\\('Benchmark.py', encoding='utf-8'\\).read\\(\\)\\); print\\('Syntax OK'\\)\")",
+      "Bash(python -c \"lines = open\\('Benchmark.py', encoding='utf-8'\\).readlines\\(\\); print\\(f'Total lines: {len\\(lines\\)}'\\)\")",
+      "Bash(python -c \"import zipfile; z = zipfile.ZipFile\\('GoWish___Thesis \\(1\\).zip'\\); print\\('\\\\n'.join\\(z.namelist\\(\\)\\)\\)\")",
+      "Bash(python -m py_compile \"C:\\\\Users\\\\awchr\\\\OneDrive\\\\Dokumenter\\\\GitHub\\\\In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies\\\\Benchmark.py\")",
+      "Bash(python -c \"import zipfile; z = zipfile.ZipFile\\('results.zip'\\); print\\('\\\\n'.join\\(n for n in z.namelist\\(\\) if n.endswith\\('.png'\\)\\)\\)\")"
+    ]
+  }
+}

@@ -8,7 +8,7 @@ Code repository for the paper *"In-Memory Association Rule Mining with Hierarchi
 
 ```
 .
-├── Benchmark.py               # Runs all three benchmark experiments
+├── Benchmark.py               # Runs all seven benchmark experiments
 ├── create_samples.py          # Generates dataset samples from Data/
 ├── requirements.txt           # Python dependencies (all scripts)
 ├── Data/                      # Place your merged parquet here
@@ -159,30 +159,46 @@ Run:
 
 ## Running all benchmark experiments
 
-`Benchmark.py` runs five experiments in one command, covering all reproducible figures and tables in the paper:
+`Benchmark.py` runs eight experiments in one command, covering all reproducible figures and tables in the paper plus industrial illustrations:
 
-| Experiment | Paper output |
-|---|---|
-| 1: Sensitivity sweep (τ/λ grid) | Table 8 |
-| 2: Basic vs. Python Cumulate | Table 9 |
-| 3: Example rules at K=5, s=0.02 | Table 3 |
-| 4: K-sweep (K=1..5, all implementations) | Figures 2, 3, 4, 8 + Tables 5, 10 |
-| 5: Support sweep (s varies, K=3 fixed) | Figures 5, 6 + Table 11 |
+| Experiment | Description | Paper output |
+|---|---|---|
+| 1: Sensitivity sweep | τ/λ grid | Table 8 |
+| 2: Basic vs. Python Cumulate | Runtime comparison | Table 9 |
+| 3: Example rules | K=5, s=0.02 | Table 3 |
+| 4: K-sweep | K=1..5, all implementations | Figures 2, 3, 4, 7, 8, 9 + Tables 5, 10 |
+| 5: Support sweep | s varies, K=3 fixed | Figures 5, 6 + Table 11 |
+| 6: L0 pair case study | One leaf-to-leaf pair, search-space illustration | Figures 10 panels |
+| 7: Rule candidate space | All mined rules vs. catalogue size | Figures 10, 11 |
+| 8: Held-out recall | 80/20 split, confidence sweep, recall-reduction curve | Figure 12 |
 
-### Quick start (paper defaults)
+Experiments 6, 7, and 8 require access to a catalogue directory that contains `products/` and `categories/` parquet sub-directories (see [Catalogue data](#catalogue-data-experiments-6--7) below). Experiment 7 additionally requires a previously generated rules CSV.
+
+### Prerequisites
+
+The benchmark runs Python Cumulate and mlxtend automatically. To also include **C++ Cumulate** results (Figures 4 and 6), build the binary first:
 
 ```bash
-python Benchmark.py Data/samples/100000 --output-dir results
+cd apriori_cumulate/cpp
+make CONDA_ENV=$CONDA_PREFIX apriori_cumulate_cpp
+cd ../..
 ```
 
-### Full example with explicit flags
+If the binary is not present, C++ is silently skipped and those bars/points will be absent from the figures.
+
+### Quick start (paper defaults, experiments 1–5 only)
 
 ```bash
 python Benchmark.py Data/samples/100000 --output-dir results \
-    --sweep-k 3 --sweep-support 0.02 \
-    --sweep-tau 0.5 0.6 0.7 --sweep-lambda 1.2 1.5 2.0 \
-    --basic-k 3 --basic-support 0.02 --basic-conf 0.6 --basic-lift 1.5 \
-    --example-k 5 --example-support 0.02 --example-conf 0.6 --example-lift 1.5 \
+    --skip l0_pair_example rule_candidate_space held_out_recall
+```
+
+### Full run including industrial experiments
+
+```bash
+python Benchmark.py Data/samples/100000 --output-dir results \
+    --catalogue-base Data/gowish_full \
+    --candidate-rules-csv results/basic_vs_cumulate/runs/.../rules_python.csv \
     --repeats 3
 ```
 
@@ -190,61 +206,111 @@ python Benchmark.py Data/samples/100000 --output-dir results \
 
 ```bash
 # Experiment 1 — Sensitivity sweep (Table 8)
-python Benchmark.py Data/samples/100000 \
-    --skip basic_vs_cumulate example_rules k_sweep support_sweep \
+python Benchmark.py Data/samples/100000 --output-dir results \
+    --skip basic_vs_cumulate example_rules k_sweep support_sweep l0_pair_example rule_candidate_space \
     --sweep-k 3 --sweep-support 0.02 --sweep-tau 0.5 0.6 0.7 --sweep-lambda 1.2 1.5 2.0
 
 # Experiment 2 — Basic vs. Cumulate (Table 9)
-python Benchmark.py Data/samples/100000 \
-    --skip sensitivity example_rules k_sweep support_sweep \
+python Benchmark.py Data/samples/100000 --output-dir results \
+    --skip sensitivity example_rules k_sweep support_sweep l0_pair_example rule_candidate_space \
     --basic-k 3 --basic-support 0.02 --basic-conf 0.6 --basic-lift 1.5 --repeats 3
 
 # Experiment 3 — Example rules (Table 3)
-python Benchmark.py Data/samples/100000 \
-    --skip sensitivity basic_vs_cumulate k_sweep support_sweep \
+python Benchmark.py Data/samples/100000 --output-dir results \
+    --skip sensitivity basic_vs_cumulate k_sweep support_sweep l0_pair_example rule_candidate_space \
     --example-k 5 --example-support 0.02 --example-conf 0.6 --example-lift 1.5
 
 # Experiment 4 — K-sweep (Figures 2,3,4,8 + Tables 5,10)
-python Benchmark.py Data/samples/100000 \
-    --skip sensitivity basic_vs_cumulate example_rules support_sweep \
+python Benchmark.py Data/samples/100000 --output-dir results \
+    --skip sensitivity basic_vs_cumulate example_rules support_sweep l0_pair_example rule_candidate_space \
     --ksweep-k 1 2 3 4 5 --ksweep-support 0.02 --ksweep-conf 0.6 --ksweep-lift 1.5
 
 # Experiment 5 — Support sweep (Figures 5,6 + Table 11)
-python Benchmark.py Data/samples/100000 \
-    --skip sensitivity basic_vs_cumulate example_rules k_sweep \
+python Benchmark.py Data/samples/100000 --output-dir results \
+    --skip sensitivity basic_vs_cumulate example_rules k_sweep l0_pair_example rule_candidate_space \
     --ssweep-support 0.05 0.03 0.02 0.01 --ssweep-k 3
+
+# Experiment 6 — L0 pair case study
+python Benchmark.py Data/samples/100000 --output-dir results \
+    --skip sensitivity basic_vs_cumulate example_rules k_sweep support_sweep rule_candidate_space \
+    --catalogue-base Data/gowish_full \
+    --l0pair-antecedent "Clothing > Shorts > Denim Shorts" \
+    --l0pair-consequent "Activewear > Activewear Tops > T-Shirts"
+
+# Experiment 7 — Rule candidate space
+python Benchmark.py Data/samples/100000 --output-dir results \
+    --skip sensitivity basic_vs_cumulate example_rules k_sweep support_sweep l0_pair_example \
+    --catalogue-base Data/gowish_full \
+    --candidate-rules-csv results/basic_vs_cumulate/runs/.../rules_python.csv
 ```
 
 ### All flags
 
 | Flag | Default | Description |
 |---|---|---|
-| `base` | *(required)* | Sample directory |
+| `base` | *(required)* | Sample directory (wishlist parquets) |
 | `--output-dir` | *(required)* | Where to write results |
 | `--repeats` | `1` | Timed repeats for Basic vs. Cumulate |
-| `--skip` | *(none)* | Experiments to skip (`sensitivity basic_vs_cumulate example_rules k_sweep support_sweep`) |
+| `--skip` | *(none)* | Experiments to skip (`sensitivity basic_vs_cumulate example_rules k_sweep support_sweep l0_pair_example rule_candidate_space`) |
 | `--python-exe` | current Python | Interpreter for subprocesses |
 | `--sample` | *(none)* | Restrict to first N wishlists (smoke test) |
-| `--sweep-k` | `3` | K for sensitivity sweep |
-| `--sweep-support` | `0.02` | Support for sensitivity sweep |
+| **Sensitivity sweep (Exp. 1)** | | |
+| `--sweep-k` | `3` | Hierarchy depth K |
+| `--sweep-support` | `0.02` | Minimum support |
 | `--sweep-tau` | `0.5 0.6 0.7` | Confidence grid |
 | `--sweep-lambda` | `1.2 1.5 2.0` | Lift floor grid |
-| `--basic-k` | `3` | K for Basic vs. Cumulate |
-| `--basic-support` | `0.02` | Support for Basic vs. Cumulate |
-| `--basic-conf` | `0.6` | Confidence for Basic vs. Cumulate |
-| `--basic-lift` | `1.5` | Lift for Basic vs. Cumulate |
-| `--example-k` | `5` | K for example rules |
-| `--example-support` | `0.02` | Support for example rules |
-| `--example-conf` | `0.6` | Confidence for example rules |
-| `--example-lift` | `1.5` | Lift for example rules |
-| `--ksweep-k` | `1 2 3 4 5` | K values for K-sweep |
-| `--ksweep-support` | `0.02` | Support for K-sweep |
-| `--ksweep-conf` | `0.6` | Confidence for K-sweep |
-| `--ksweep-lift` | `1.5` | Lift for K-sweep |
-| `--ssweep-support` | `0.05 0.03 0.02 0.01` | Support values for support sweep |
-| `--ssweep-k` | `3` | K for support sweep |
-| `--ssweep-conf` | `0.6` | Confidence for support sweep |
-| `--ssweep-lift` | `1.5` | Lift for support sweep |
+| **Basic vs. Cumulate (Exp. 2)** | | |
+| `--basic-k` | `3` | K |
+| `--basic-support` | `0.02` | Minimum support |
+| `--basic-conf` | `0.6` | Minimum confidence |
+| `--basic-lift` | `1.5` | Minimum lift |
+| **Example rules (Exp. 3)** | | |
+| `--example-k` | `5` | K |
+| `--example-support` | `0.02` | Minimum support |
+| `--example-conf` | `0.6` | Minimum confidence |
+| `--example-lift` | `1.5` | Minimum lift |
+| `--example-top-n` | `10` | Rules to print |
+| **K-sweep (Exp. 4)** | | |
+| `--ksweep-k` | `1 2 3 4 5` | K values to sweep |
+| `--ksweep-support` | `0.02` | Minimum support |
+| `--ksweep-conf` | `0.6` | Minimum confidence |
+| `--ksweep-lift` | `1.5` | Minimum lift |
+| **Support sweep (Exp. 5)** | | |
+| `--ssweep-support` | `0.05 0.03 0.02 0.01` | Support values to sweep |
+| `--ssweep-k` | `3` | K |
+| `--ssweep-conf` | `0.6` | Minimum confidence |
+| `--ssweep-lift` | `1.5` | Minimum lift |
+| **Catalogue settings (Exp. 6 & 7)** | | |
+| `--catalogue-base` | *(same as `base`)* | Folder with `products/` and `categories/` parquet sub-directories |
+| `--catalogue-k-levels` | `3` | Hierarchy depth for catalogue tokenisation |
+| **L0 pair case study (Exp. 6)** | | |
+| `--l0pair-antecedent` | `Clothing > Shorts > Denim Shorts` | Antecedent leaf category path |
+| `--l0pair-consequent` | `Activewear > Activewear Tops > T-Shirts` | Consequent leaf category path |
+| **Rule candidate space (Exp. 7)** | | |
+| `--candidate-rules-csv` | *(none — exp. skipped if absent)* | Path to a Cumulate rules CSV with `a_toks` and `b_toks` columns |
+| `--candidate-top-examples` | `20` | High-scoring rules exported to `top_rule_examples.csv` |
+| `--candidate-specific-examples` | `6` | Concrete before/after examples to plot |
+| **Held-out recall (Exp. 8)** | | |
+| `--held-out-train-frac` | `0.8` | Fraction of wishlists used for training |
+| `--held-out-mine-conf` | `0.50` | Minimum confidence when mining on the training split |
+| `--held-out-final-conf` | `0.60` | Highlighted threshold on the recall-reduction plot |
+| `--held-out-conf-sweep` | `0.50,0.55,0.60,0.65,0.70,0.75,0.80` | Comma-separated confidence thresholds for the recall-reduction curve |
+
+---
+
+## Catalogue data (Experiments 6, 7 & 8)
+
+Experiments 6 and 7 need the full GoWish product catalogue — specifically two parquet directories:
+
+```
+<catalogue-base>/
+    products/
+        *.parquet    # columns: product_id, mongo_product_id, title, description
+    categories/
+        *.parquet    # columns: id, category_name
+```
+
+Pass the path to this folder via `--catalogue-base`. If your catalogue lives inside the same root as your wishlist data you can omit the flag and `base` will be used as the fallback.
 
 ---
 
@@ -257,17 +323,46 @@ benchmark_results/
     sensitivity/
         rules_tau0p5_lambda1p2.csv
         ...
-        summary.json              ← Table 8 data
+        summary.json                          ← Table 8 data
     basic_vs_cumulate/
-        comparison_summary.csv    ← Table 9 data
+        comparison_summary.csv                ← Table 9 data
         runs/
     example_rules/
-        rules_k5_s0p02.csv        ← Table 3 source
+        rules_k5_s0p02.csv                    ← Table 3 source
     k_sweep/
-        k_sweep_summary.csv       ← Figures 2,3,4,8 + Tables 5,10
+        k_sweep_summary.csv                   ← Tables 5,10
         runs/
+        figures/
+            thesis_incremental_k.png          ← Figure 2
+            final_rules_cumulate_vs_mlxtend_by_k.png ← Figure 3
+            runtime_by_k_level_python_cpp.png ← Figure 4
+            rule_reduction_funnel.png         ← Figure 7
+            thesis_redundancy_stacked.png     ← Figure 8
+            phase_breakdown_baseline.png      ← Figure 9
     support_sweep/
-        support_sweep_summary.csv ← Figures 5,6 + Table 11
+        support_sweep_summary.csv             ← Table 11
         runs/
+        figures/
+            python_support_sensitivity.png    ← Figure 5
+            thesis_efficiency_scatter.png     ← Figure 6
+    l0_pair_example/
+        l0_pair_example.csv                   ← Pair metrics
+        l0_pair_example.png                   ← Metric + bar chart
+        industrial_pair_overview.png          ← Three-panel industrial figure
+    rule_candidate_space/
+        category_inventory.csv                ← Products per category token
+        rule_candidate_space_reduction.csv    ← Per-rule candidate counts
+        summary.csv                           ← Aggregate reduction statistics
+        top_rule_examples.csv                 ← Highest-scoring single-consequent rules
+        specific_rule_examples.csv
+        leaf_rule_examples.csv                ← L0-level rule examples (if present)
+        category_unique_products_hist.png
+        rule_candidate_space_reduction_hist.png
+        single_consequent_rule_reduction_hist.png
+        specific_rule_examples_before_after.png
+        leaf_rule_examples_before_after.png
+    held_out_recall/
+        recall_reduction_tradeoff.csv         ← Confidence sweep data
+        recall_reduction_tradeoff.png         ← Figure 12
 ```
 

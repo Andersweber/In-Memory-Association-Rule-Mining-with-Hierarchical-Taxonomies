@@ -501,7 +501,19 @@ def main():
         df_encoded = encode_transactions(transactions, all_tokens)
 
     with timed_step("Building ancestor map"):
-        branch_ancestry = fpc.build_branch_ancestry(df_min, name_col="category_name")
+        # Expand leaf paths to all intermediate prefixes so that build_branch_ancestry
+        # sees the full taxonomy tree (e.g. "Clothing", "Clothing > Tops", as well as
+        # "Clothing > Tops > T-Shirts"), matching the behaviour of pipeline.py in
+        # Bachelor_final which passes the complete categories table.
+        _all_taxonomy_paths: set[str] = set()
+        for path in df_min["category_name"].dropna().unique():
+            parts = [p.strip() for p in str(path).split(">") if p.strip()]
+            for i in range(1, len(parts) + 1):
+                _all_taxonomy_paths.add(" > ".join(parts[:i]))
+        branch_ancestry = fpc.build_branch_ancestry(
+            pd.DataFrame({"category_name": sorted(_all_taxonomy_paths)}),
+            name_col="category_name",
+        )
         ancestors = build_ancestors_from_tokens(all_tokens, branch_ancestry=branch_ancestry)
 
     with timed_step("Mining rules"):

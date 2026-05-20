@@ -46,16 +46,16 @@ import numpy as np
 import pandas as pd
 
 # ---------------------------------------------------------------------------
-# Global plot style — 22 pt font, clean spines
+# Global plot style — compact thesis figures, clean spines
 # ---------------------------------------------------------------------------
 
 plt.rcParams.update({
-    "font.size":        22,
-    "axes.titlesize":   22,
-    "axes.labelsize":   22,
-    "xtick.labelsize":  18,
-    "ytick.labelsize":  18,
-    "legend.fontsize":  18,
+    "font.size":        12,
+    "axes.titlesize":   14,
+    "axes.labelsize":   13,
+    "xtick.labelsize":  11,
+    "ytick.labelsize":  11,
+    "legend.fontsize":  11,
     "figure.dpi":       220,
 })
 
@@ -723,12 +723,12 @@ def _paper_axes(ax: Any) -> None:
     ax.tick_params(direction="in", top=True, right=True, width=1.0)
     for spine in ax.spines.values():
         spine.set_linewidth(1.0)
-    ax.title.set_fontsize(22)
+    ax.title.set_fontsize(14)
     ax.title.set_fontweight("bold")
-    ax.xaxis.label.set_fontsize(22)
-    ax.yaxis.label.set_fontsize(22)
+    ax.xaxis.label.set_fontsize(13)
+    ax.yaxis.label.set_fontsize(13)
     for tick in ax.get_xticklabels() + ax.get_yticklabels():
-        tick.set_fontsize(18)
+        tick.set_fontsize(11)
 
 
 def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) -> None:
@@ -784,9 +784,9 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         for bar, inc, tot in zip(bars, incremental, totals):
             cx = bar.get_x() + bar.get_width() / 2
             ax.text(cx, bar.get_height() + ymax * 0.02,
-                    str(int(round(inc))), ha="center", va="bottom", fontsize=18, fontweight="bold")
+                    str(int(round(inc))), ha="center", va="bottom", fontsize=11, fontweight="bold")
             ax.text(cx, bar.get_height() + ymax * 0.10,
-                    f"total={int(round(tot))}", ha="center", va="bottom", fontsize=14, color="0.4")
+                    f"total={int(round(tot))}", ha="center", va="bottom", fontsize=9, color="0.4")
         ax.set_title(
             f"Incremental rule discovery by k-level\n"
             f"(support={args.ksweep_support}, total = cumulative)",
@@ -829,7 +829,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + y_max * 0.01,
-                    str(int(round(y))), ha="center", va="bottom", fontsize=14,
+                    str(int(round(y))), ha="center", va="bottom", fontsize=10,
                 )
         ax.set_title(
             f"Final rules remaining by k-level\n"
@@ -945,7 +945,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         for x, f in zip(xpos, finals):
             if f > 0:
                 ax.text(x, f / 2, str(int(round(f))), ha="center", va="center",
-                        color="white", fontsize=16, fontweight="bold")
+                        color="white", fontsize=12, fontweight="bold")
         ax.set_title(
             f"Cumulate rule filtering by k-level\n(support={args.ksweep_support})",
             fontweight="bold",
@@ -1066,9 +1066,9 @@ def _make_support_sweep_figures(
                      color=OI_BLUISH_GREEN, marker="^", linestyle=":", label="Rule generation time",
                      linewidth=2, markersize=8)
         ax2.set_ylabel("Rule generation time (sec)")
-        ax2.yaxis.label.set_fontsize(22)
+        ax2.yaxis.label.set_fontsize(13)
         for tick in ax2.get_yticklabels():
-            tick.set_fontsize(18)
+            tick.set_fontsize(11)
 
         lines1, labels1 = ax1.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
@@ -1645,10 +1645,14 @@ def _build_rule_benchmark(
         .to_dict()
     )
 
+    missing_consequent_tokens: set[str] = set()
+    missing_antecedent_tokens: set[str] = set()
     rows: List[Dict[str, Any]] = []
     for row in rules.itertuples(index=False):
         antecedents = _parse_token_tuple(getattr(row, "a_toks"))
         consequents = _parse_token_tuple(getattr(row, "b_toks"))
+        missing_antecedent_tokens.update(tok for tok in antecedents if tok not in token_to_products)
+        missing_consequent_tokens.update(tok for tok in consequents if tok not in token_to_products)
 
         antecedent_products = set().union(
             *(token_to_products.get(tok, frozenset()) for tok in antecedents)
@@ -1676,6 +1680,20 @@ def _build_rule_benchmark(
             "lift":                                  getattr(row, "lift", None),
             "score":                                 getattr(row, "score", None),
         })
+
+    if missing_consequent_tokens:
+        examples = ", ".join(sorted(missing_consequent_tokens)[:5])
+        raise ValueError(
+            "Rule consequents contain tokens that are not present in the catalogue token inventory. "
+            "This usually means --catalogue-k-levels does not match the K used to mine the rules. "
+            f"Missing consequent tokens: {examples}"
+        )
+    if missing_antecedent_tokens:
+        examples = ", ".join(sorted(missing_antecedent_tokens)[:5])
+        print(
+            "[warning] Some rule antecedent tokens were not present in the catalogue token inventory: "
+            f"{examples}"
+        )
 
     benchmark = pd.DataFrame(rows)
     return benchmark.sort_values(
@@ -1739,8 +1757,8 @@ def _save_rule_reduction_curve(
     ax.axvline(median, color="#1f2933", linestyle="--", linewidth=1.4)
     ax.axhline(50, color="#9aa6b2", linestyle=":", linewidth=1)
     ax.scatter([median], [50], color="#1f2933", zorder=3)
-    ax.text(median + 0.15, 52, f"Median {median:.1f}%", va="bottom", fontsize=10)
-    ax.text(p10 + 0.15, 12, f"90% of rules reduce by at least {p10:.1f}%", fontsize=10)
+    ax.text(median + 0.15, 52, f"Median {median:.1f}%", va="bottom", fontsize=8.5)
+    ax.text(p10 + 0.15, 12, f"90% of rules reduce by at least {p10:.1f}%", fontsize=8.5)
     ax.set_xlim(max(70, values.min() - 1), min(100, values.max() + 1))
     ax.set_ylim(0, 100)
     ax.set_xlabel("Candidate-space reduction (%)")
@@ -1985,6 +2003,7 @@ def run_rule_candidate_space(args: argparse.Namespace, out_dir: Path) -> None:
         leaf_examples.to_csv(out_dir / "leaf_rule_examples.csv", index=False)
 
     _save_category_histogram(inventory, out_dir / "category_unique_products_hist.png")
+    _save_category_histogram(inventory, out_dir / "category_inventory_histogram.png")
     _save_rule_reduction_curve(
         benchmark,
         out_dir / "rule_candidate_space_reduction_hist.png",
@@ -1994,6 +2013,11 @@ def run_rule_candidate_space(args: argparse.Namespace, out_dir: Path) -> None:
     _save_rule_reduction_curve(
         single_consequent,
         out_dir / "single_consequent_rule_reduction_hist.png",
+        title="Candidate-space reduction from rule consequents",
+    )
+    _save_rule_reduction_curve(
+        single_consequent,
+        out_dir / "candidate_space_reduction_from_rule_consequents.png",
         title="Candidate-space reduction from rule consequents",
     )
     _save_specific_examples_chart(
@@ -2375,16 +2399,24 @@ def main() -> None:
             run_l0_pair_example(args, out_root / "l0_pair_example")
 
     if "rule_candidate_space" in run:
-        if not args.candidate_rules_csv:
+        candidate_args = argparse.Namespace(**vars(args))
+        if not candidate_args.candidate_rules_csv:
             example_rules_csv = (
                 out_root / "example_rules" /
                 f"rules_k{args.example_k}_s{str(args.example_support).replace('.','p')}.csv"
             )
             if example_rules_csv.exists():
-                args.candidate_rules_csv = str(example_rules_csv)
+                candidate_args.candidate_rules_csv = str(example_rules_csv)
+                if candidate_args.catalogue_k_levels != args.example_k:
+                    print(
+                        f"\n[EXPERIMENT 7] Aligning --catalogue-k-levels "
+                        f"{candidate_args.catalogue_k_levels} → {args.example_k} because the "
+                        f"auto-selected rules were mined with K={args.example_k}."
+                    )
+                    candidate_args.catalogue_k_levels = args.example_k
                 print(
                     f"\n[EXPERIMENT 7] Using generated example-rules CSV: "
-                    f"{args.candidate_rules_csv}"
+                    f"{candidate_args.candidate_rules_csv}"
                 )
             else:
                 print(
@@ -2392,13 +2424,13 @@ def main() -> None:
                     "Run Experiment 3 in the same benchmark invocation, or pass "
                     "--candidate-rules-csv explicitly."
                 )
-        if args.candidate_rules_csv and not _has_catalogue:
+        if candidate_args.candidate_rules_csv and not _has_catalogue:
             print(
                 f"\n[EXPERIMENT 7 skipped] Catalogue not found at {_cat_base}. "
                 + _catalogue_hint
             )
-        elif args.candidate_rules_csv:
-            run_rule_candidate_space(args, out_root / "rule_candidate_space")
+        elif candidate_args.candidate_rules_csv:
+            run_rule_candidate_space(candidate_args, out_root / "rule_candidate_space")
 
     if "held_out_recall" in run:
         if not _has_catalogue:

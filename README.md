@@ -172,6 +172,18 @@ Run:
 
 Experiments 6, 7, and 8 require access to a catalogue directory that contains `products/` and `categories/` parquet sub-directories (see [Catalogue data](#catalogue-data-experiments-6--7) below). Experiment 7 additionally requires a previously generated rules CSV.
 
+### Prerequisites
+
+The benchmark runs Python Cumulate and mlxtend automatically. To also include **C++ Cumulate** results (Figures 4 and 6), build the binary first:
+
+```bash
+cd apriori_cumulate/cpp
+make CONDA_ENV=$CONDA_PREFIX apriori_cumulate_cpp
+cd ../..
+```
+
+If the binary is not present, C++ is silently skipped and those bars/points will be absent from the figures.
+
 ### Quick start (paper defaults, experiments 1–5 only)
 
 ```bash

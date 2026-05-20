@@ -657,9 +657,13 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         totals = [cumulate_rules[k] for k in sorted_k]
         incremental = [totals[0]] + [totals[i] - totals[i - 1] for i in range(1, len(totals))]
         xpos = list(range(len(sorted_k)))
+        # Each k-level bar gets its own color from tab10 (matching thesis figure)
+        _k_colors = ["#1f77b4", "#2ca02c", "#d62728", "#ff7f0e", "#9467bd",
+                     "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+        bar_colors = [_k_colors[i % len(_k_colors)] for i in range(len(sorted_k))]
         fig, ax = plt.subplots(figsize=(8, 5))
-        bars = ax.bar(xpos, incremental, color="0.35", edgecolor="black")
-        ymax = max(incremental)
+        bars = ax.bar(xpos, incremental, color=bar_colors)
+        ymax = max(v for v in incremental if v > 0) if any(v > 0 for v in incremental) else 1
         for bar, inc, tot in zip(bars, incremental, totals):
             cx = bar.get_x() + bar.get_width() / 2
             ax.text(cx, bar.get_height() + ymax * 0.02,

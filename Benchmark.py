@@ -68,11 +68,9 @@ from Apriori_Cumulate_Python import (       # noqa: E402
     build_ancestors_from_tokens, mine_rules_raw,
     add_score_and_rank, dedupe_family, dedupe_antimirror, pretty_rules,
     label_of, level_of, branch_of,
+    make_level_tokens, parse_token,
 )
 from frequent_patterns import fpcommon as fpc  # noqa: E402
-
-# Additional helpers needed for experiments 6 & 7
-from pipeline import make_level_tokens, parse_token  # noqa: E402
 
 
 # ---------------------------------------------------------------------------

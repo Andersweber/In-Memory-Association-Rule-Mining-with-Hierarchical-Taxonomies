@@ -261,6 +261,9 @@ def build_ancestors_from_tokens(
 def load_data(base: str) -> pd.DataFrame:
     p = Path(base)
     if p.is_dir():
+        named = p / "wishlist_data.parquet"
+        if named.exists():
+            return pd.read_parquet(named)
         files = sorted(p.glob("*.parquet"))
         if not files:
             raise FileNotFoundError(f"No .parquet files found in {p}")

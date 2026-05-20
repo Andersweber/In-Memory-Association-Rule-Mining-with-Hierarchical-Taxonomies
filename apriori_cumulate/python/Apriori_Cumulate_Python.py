@@ -399,7 +399,16 @@ def add_score_and_rank(rules: pd.DataFrame, min_support: float, min_lift: float)
     r = rules.copy()
     r = r[(r["support"] >= min_support) & (r["lift"] >= min_lift)].copy()
     r["score"] = r["confidence"] * r["lift"]
-    r = r.sort_values(["score", "confidence", "lift", "support"], ascending=False)
+    r["_a_key"] = r["antecedents"].apply(lambda s: tuple(sorted(s)))
+    r["_b_key"] = r["consequents"].apply(lambda s: tuple(sorted(s)))
+    r = (
+        r.sort_values(
+            ["score", "confidence", "lift", "support", "_a_key", "_b_key"],
+            ascending=[False, False, False, False, True, True],
+        )
+        .drop(columns=["_a_key", "_b_key"])
+        .copy()
+    )
     return r
 
 
@@ -421,10 +430,15 @@ def dedupe_family(rules: pd.DataFrame) -> pd.DataFrame:
     r = rules.copy()
     r["b_family"] = r["b_toks"].apply(consequent_family_key_multi)
     r["family_key"] = list(zip(r["a_toks"], r["b_family"]))
+    r["_a_key"] = r["a_toks"]
+    r["_b_key"] = r["b_toks"]
     r = (
-        r.sort_values(["score", "confidence", "lift", "support"], ascending=False)
+        r.sort_values(
+            ["score", "confidence", "lift", "support", "_a_key", "_b_key"],
+            ascending=[False, False, False, False, True, True],
+        )
          .drop_duplicates(subset=["family_key"], keep="first")
-         .drop(columns=["b_family", "family_key"])
+         .drop(columns=["b_family", "family_key", "_a_key", "_b_key"])
          .copy()
     )
     return r
@@ -438,10 +452,15 @@ def dedupe_antimirror(rules: pd.DataFrame) -> pd.DataFrame:
         lambda row: tuple(sorted(set(row["a_toks"]) | set(row["b_toks"]))),
         axis=1,
     )
+    r["_a_key"] = r["a_toks"]
+    r["_b_key"] = r["b_toks"]
     r = (
-        r.sort_values(["score", "confidence", "lift", "support"], ascending=False)
+        r.sort_values(
+            ["score", "confidence", "lift", "support", "_a_key", "_b_key"],
+            ascending=[False, False, False, False, True, True],
+        )
          .drop_duplicates(subset=["pair_key"], keep="first")
-         .drop(columns=["pair_key"])
+         .drop(columns=["pair_key", "_a_key", "_b_key"])
          .copy()
     )
     return r

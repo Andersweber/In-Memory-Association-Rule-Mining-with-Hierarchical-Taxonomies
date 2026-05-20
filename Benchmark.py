@@ -113,6 +113,12 @@ def parse_args() -> argparse.Namespace:
              "(columns: wishlist_id, category_name).",
     )
     p.add_argument(
+        "--mining-base", default=None, metavar="DIR",
+        help="Parquet file/directory used for Experiments 1-5. Defaults to <base>. "
+             "Use this to run benchmark sweeps on Data/samples/100000 while keeping "
+             "--catalogue-base or <base> as the full catalogue for Experiments 6-8.",
+    )
+    p.add_argument(
         "--output-dir", required=True, metavar="DIR",
         help="Root directory for all benchmark outputs.",
     )
@@ -137,7 +143,9 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--sample", type=int, default=None,
-        help="Restrict to the first N wishlists (quick smoke-test).",
+        help="Materialize a first-N-wishlists parquet sample for Experiments 1-5. "
+             "The sample is written under <output-dir>/_samples and passed to all "
+             "subprocess-based benchmark runs.",
     )
 
     # ── Experiment 1: sensitivity sweep ─────────────────────────────────────
@@ -241,7 +249,8 @@ def parse_args() -> argparse.Namespace:
     g7.add_argument(
         "--candidate-rules-csv", default=None, metavar="CSV",
         help="Path to a Cumulate rule CSV (must have a_toks and b_toks columns). "
-             "Experiment 7 is skipped when this is not provided.",
+             "When omitted, Benchmark.py uses the Experiment 3 example-rules CSV "
+             "generated earlier in the same run.",
     )
     g7.add_argument(
         "--candidate-top-examples", type=int, default=20, metavar="N",
@@ -311,6 +320,16 @@ def _first_ms(text: str, pattern: str) -> Optional[float]:
     """Extract a millisecond timing captured by group 1 of 'pattern' and return seconds."""
     m = re.search(pattern, text, flags=re.IGNORECASE)
     return float(m.group(1)) / 1000.0 if m else None
+
+
+def _rule_count(metrics: Dict[str, Any]) -> Any:
+    final = metrics.get("final_rules")
+    if final is not None:
+        return final
+    raw = metrics.get("raw_rules")
+    if raw is not None:
+        return raw
+    return "?"
 
 
 def extract_metrics(stdout: str, stderr: str) -> Dict[str, Any]:
@@ -386,6 +405,34 @@ def run_subprocess(command: List[str], run_dir: Path) -> Dict[str, Any]:
     return metrics
 
 
+def _materialize_wishlist_sample(base: str, n_wishlists: int, out_root: Path) -> Path:
+    sample_dir = out_root / "_samples" / f"first_{n_wishlists}"
+    sample_file = sample_dir / "part-00000.parquet"
+    meta_file = sample_dir / "sample_metadata.json"
+    if sample_file.exists():
+        return sample_dir
+
+    sample_dir.mkdir(parents=True, exist_ok=True)
+    df = clean_data(load_data(base))
+    keep = set(df["wishlist_id"].drop_duplicates().head(n_wishlists))
+    sample = df[df["wishlist_id"].isin(keep)].copy()
+    sample.to_parquet(sample_file, index=False)
+    meta_file.write_text(
+        json.dumps(
+            {
+                "source": base,
+                "method": "first_n_wishlists_after_cleaning",
+                "requested_wishlists": int(n_wishlists),
+                "actual_wishlists": int(sample["wishlist_id"].nunique()),
+                "rows": int(len(sample)),
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    return sample_dir
+
+
 def _annotate_rules(rules: pd.DataFrame) -> pd.DataFrame:
     r = rules.copy()
     r["a_toks"]     = r["antecedents"].apply(lambda s: tuple(sorted(s)))
@@ -397,6 +444,18 @@ def _annotate_rules(rules: pd.DataFrame) -> pd.DataFrame:
     r["a_branches"] = r["a_toks"].apply(lambda t: tuple(branch_of(x) for x in t))
     r["b_branches"] = r["b_toks"].apply(lambda t: tuple(branch_of(x) for x in t))
     return r
+
+
+def _build_branch_ancestry_from_category_paths(rows: pd.DataFrame) -> Dict[str, Any]:
+    taxonomy_paths: set[str] = set()
+    for path in rows["category_name"].dropna().unique():
+        parts = [p.strip() for p in str(path).split(">") if p.strip()]
+        for i in range(1, len(parts) + 1):
+            taxonomy_paths.add(" > ".join(parts[:i]))
+    return fpc.build_branch_ancestry(
+        pd.DataFrame({"category_name": sorted(taxonomy_paths)}),
+        name_col="category_name",
+    )
 
 
 # ===========================================================================
@@ -418,7 +477,7 @@ def run_sensitivity_sweep(args: argparse.Namespace, out_dir: Path) -> None:
 
     # ── Load & prepare (once) ────────────────────────────────────────────────
     with timed_step("Loading data"):
-        df = load_data(args.base)
+        df = load_data(args.mining_base)
 
     with timed_step("Cleaning data"):
         df_min = clean_data(df)
@@ -437,7 +496,7 @@ def run_sensitivity_sweep(args: argparse.Namespace, out_dir: Path) -> None:
         df_encoded = encode_transactions(transactions, all_tokens)
 
     with timed_step("Building ancestor map"):
-        branch_ancestry = fpc.build_branch_ancestry(df_min, name_col="category_name")
+        branch_ancestry = _build_branch_ancestry_from_category_paths(df_min)
         ancestors = build_ancestors_from_tokens(all_tokens, branch_ancestry=branch_ancestry)
 
     # ── Run Apriori ONCE at the lowest tau ───────────────────────────────────
@@ -555,7 +614,7 @@ def run_basic_vs_cumulate(args: argparse.Namespace, out_dir: Path) -> None:
         rules_file = run_dir / cfg["rules_filename"]
 
         command = [
-            args.python_exe, cfg["script"], args.base,
+            args.python_exe, cfg["script"], args.mining_base,
             "--k-levels",    str(args.basic_k),
             "--min-support", str(args.basic_support),
             "--min-conf",    str(args.basic_conf),
@@ -573,7 +632,7 @@ def run_basic_vs_cumulate(args: argparse.Namespace, out_dir: Path) -> None:
         print(
             f"  {status}  wall={metrics['runtime_seconds']:.1f}s  "
             f"apriori={metrics.get('apriori_seconds') or 0:.3f}s  "
-            f"rules={metrics.get('final_rules') or metrics.get('raw_rules')}"
+            f"rules={_rule_count(metrics)}"
         )
         if not metrics["success"]:
             print(f"  stderr → {run_dir / 'stderr.log'}")
@@ -598,7 +657,7 @@ def run_basic_vs_cumulate(args: argparse.Namespace, out_dir: Path) -> None:
             f"{row['repeat_id']:>3} "
             f"{row['runtime_seconds']:>10.2f} "
             f"{row.get('apriori_seconds') or 0:>12.3f} "
-            f"{row.get('final_rules') or row.get('raw_rules') or '?':>8}"
+            f"{_rule_count(row):>8}"
         )
 
 
@@ -619,7 +678,7 @@ def run_example_rules(args: argparse.Namespace, out_dir: Path) -> None:
     rules_file = out_dir / f"rules_k{args.example_k}_s{str(args.example_support).replace('.','p')}.csv"
 
     command = [
-        args.python_exe, str(CUMULATE_PIPELINE), args.base,
+        args.python_exe, str(CUMULATE_PIPELINE), args.mining_base,
         "--k-levels",     str(args.example_k),
         "--min-support",  str(args.example_support),
         "--min-conf",     str(args.example_conf),
@@ -1111,7 +1170,7 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                 # mlxtend_flat has no --k-levels flag; cpp_cumulate takes positional args
                 if impl == "mlxtend_flat":
                     command = [
-                        args.python_exe, script, args.base,
+                        args.python_exe, script, args.mining_base,
                         "--min-support", str(args.ksweep_support),
                         "--min-conf",    str(args.ksweep_conf),
                         "--min-lift",    str(args.ksweep_lift),
@@ -1120,17 +1179,18 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                 elif impl == "cpp_cumulate":
                     # C++ binary: <exe> <base> <k> <support> <conf> <lift> <max_ante> <max_cons>
                     command = [
-                        script, args.base,
+                        script, args.mining_base,
                         str(k),
                         str(args.ksweep_support),
                         str(args.ksweep_conf),
                         str(args.ksweep_lift),
                         str(args.ksweep_max_len),
                         str(args.ksweep_max_len),
+                        str(rules_file),
                     ]
                 else:
                     command = [
-                        args.python_exe, script, args.base,
+                        args.python_exe, script, args.mining_base,
                         "--k-levels",    str(k),
                         "--min-support", str(args.ksweep_support),
                         "--min-conf",    str(args.ksweep_conf),
@@ -1152,7 +1212,7 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                 print(
                     f"{status}  wall={metrics['runtime_seconds']:.1f}s  "
                     f"apriori={metrics.get('apriori_seconds') or 0:.3f}s  "
-                    f"rules={metrics.get('final_rules') or metrics.get('raw_rules')}"
+                    f"rules={_rule_count(metrics)}"
                 )
                 if not metrics["success"]:
                     print(f"    stderr → {run_dir / 'stderr.log'}")
@@ -1185,7 +1245,7 @@ def run_support_sweep(args: argparse.Namespace, out_dir: Path) -> None:
             rules_file = run_dir / "rules.csv"
 
             command = [
-                args.python_exe, str(CUMULATE_PIPELINE), args.base,
+                args.python_exe, str(CUMULATE_PIPELINE), args.mining_base,
                 "--k-levels",     str(args.ssweep_k),
                 "--min-support",  str(s),
                 "--min-conf",     str(args.ssweep_conf),
@@ -1209,7 +1269,7 @@ def run_support_sweep(args: argparse.Namespace, out_dir: Path) -> None:
             print(
                 f"{status}  wall={metrics['runtime_seconds']:.1f}s  "
                 f"apriori={metrics.get('apriori_seconds') or 0:.3f}s  "
-                f"rules={metrics.get('final_rules') or metrics.get('raw_rules')}"
+                f"rules={_rule_count(metrics)}"
             )
             if not metrics["success"]:
                 print(f"    stderr → {run_dir / 'stderr.log'}")
@@ -1251,7 +1311,7 @@ def _print_sweep_table(
             f"{row['repeat_id']:>3} "
             f"{row['runtime_seconds']:>10.2f} "
             f"{row.get('apriori_seconds') or 0:>12.3f} "
-            f"{row.get('final_rules') or row.get('raw_rules') or '?':>8}"
+            f"{_rule_count(row):>8}"
         )
 
 
@@ -2169,7 +2229,7 @@ def run_held_out_recall(args: argparse.Namespace, out_dir: Path) -> None:
     path_map = {tok: label_of(tok) for tok in train_vocab}
 
     with timed_step("Building ancestor map"):
-        branch_ancestry = fpc.build_branch_ancestry(train_rows, name_col="category_name")
+        branch_ancestry = _build_branch_ancestry_from_category_paths(train_rows)
         ancestors = build_ancestors_from_tokens(train_vocab, branch_ancestry=branch_ancestry)
 
     with timed_step("Encoding transactions"):
@@ -2257,15 +2317,22 @@ def main() -> None:
     } - skip
 
     out_root = Path(args.output_dir).resolve()
+    requested_sample = args.sample
+    if requested_sample is not None:
+        args.mining_base = str(_materialize_wishlist_sample(args.base, requested_sample, out_root))
+        args.sample = None
+    elif args.mining_base is None:
+        args.mining_base = args.base
 
     print(f"[{now_stamp()}] Benchmark started")
     print(f"Data path    : {args.base}")
+    print(f"Mining data  : {args.mining_base}")
     print(f"Output dir   : {out_root}")
     print(f"Running      : {', '.join(sorted(run))}")
     if skip:
         print(f"Skipping     : {', '.join(sorted(skip))}")
-    if args.sample:
-        print(f"Sample       : {args.sample} wishlists")
+    if requested_sample is not None:
+        print(f"Sample       : {requested_sample} wishlists")
     print()
 
     if "sensitivity" in run:
@@ -2309,16 +2376,28 @@ def main() -> None:
 
     if "rule_candidate_space" in run:
         if not args.candidate_rules_csv:
-            print(
-                "\n[EXPERIMENT 7 skipped] Provide --candidate-rules-csv to run "
-                "the rule candidate-space benchmark."
+            example_rules_csv = (
+                out_root / "example_rules" /
+                f"rules_k{args.example_k}_s{str(args.example_support).replace('.','p')}.csv"
             )
-        elif not _has_catalogue:
+            if example_rules_csv.exists():
+                args.candidate_rules_csv = str(example_rules_csv)
+                print(
+                    f"\n[EXPERIMENT 7] Using generated example-rules CSV: "
+                    f"{args.candidate_rules_csv}"
+                )
+            else:
+                print(
+                    "\n[EXPERIMENT 7 skipped] No candidate rules CSV found. "
+                    "Run Experiment 3 in the same benchmark invocation, or pass "
+                    "--candidate-rules-csv explicitly."
+                )
+        if args.candidate_rules_csv and not _has_catalogue:
             print(
                 f"\n[EXPERIMENT 7 skipped] Catalogue not found at {_cat_base}. "
                 + _catalogue_hint
             )
-        else:
+        elif args.candidate_rules_csv:
             run_rule_candidate_space(args, out_root / "rule_candidate_space")
 
     if "held_out_recall" in run:

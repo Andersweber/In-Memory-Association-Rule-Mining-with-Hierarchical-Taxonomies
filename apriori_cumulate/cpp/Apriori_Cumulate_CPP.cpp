@@ -511,6 +511,15 @@ struct ScoredRule {
     double support = 0, confidence = 0, lift = 0, score = 0;
 };
 
+static bool scored_rule_better(const ScoredRule& a, const ScoredRule& b) {
+    if (a.score != b.score)           return a.score > b.score;
+    if (a.confidence != b.confidence) return a.confidence > b.confidence;
+    if (a.lift != b.lift)             return a.lift > b.lift;
+    if (a.support != b.support)       return a.support > b.support;
+    if (a.a_toks != b.a_toks)         return a.a_toks < b.a_toks;
+    return a.b_toks < b.b_toks;
+}
+
 // =========================================================
 // ── CELL 7 : Post-processing ──────────────────────────────
 // =========================================================
@@ -544,17 +553,13 @@ static std::vector<ScoredRule> add_score_and_rank(
             out.push_back(std::move(r));
         }
     }
-    std::sort(out.begin(), out.end(), [](const ScoredRule& a, const ScoredRule& b) {
-        if (a.score != b.score)           return a.score > b.score;
-        if (a.confidence != b.confidence) return a.confidence > b.confidence;
-        if (a.lift != b.lift)             return a.lift > b.lift;
-        return a.support > b.support;
-    });
+    std::sort(out.begin(), out.end(), scored_rule_better);
     return out;
 }
 
 // dedupe_family: keep best rule per (antecedent, consequent-family)
 static std::vector<ScoredRule> dedupe_family(std::vector<ScoredRule> rules) {
+    std::sort(rules.begin(), rules.end(), scored_rule_better);
     std::set<std::pair<std::vector<std::string>, std::vector<std::string>>> seen;
     std::vector<ScoredRule> out;
     for (auto& r : rules) {
@@ -569,6 +574,7 @@ static std::vector<ScoredRule> dedupe_family(std::vector<ScoredRule> rules) {
 
 // dedupe_antimirror: keep best of A->B vs B->A
 static std::vector<ScoredRule> dedupe_antimirror(std::vector<ScoredRule> rules) {
+    std::sort(rules.begin(), rules.end(), scored_rule_better);
     std::set<std::vector<std::string>> seen;
     std::vector<ScoredRule> out;
     for (auto& r : rules) {
@@ -643,6 +649,23 @@ struct LoadResult {
     std::vector<std::string> cat_paths; // unique category path strings for branch ancestry
 };
 
+static std::vector<std::string>
+expand_category_path_prefixes(const std::vector<std::string>& category_paths) {
+    std::set<std::string> prefixes;
+    for (const auto& path : category_paths) {
+        auto parts = split_path(path);
+        for (int upto = 1; upto <= (int)parts.size(); ++upto) {
+            std::string prefix;
+            for (int i = 0; i < upto; ++i) {
+                if (i) prefix += " > ";
+                prefix += parts[i];
+            }
+            prefixes.insert(prefix);
+        }
+    }
+    return std::vector<std::string>(prefixes.begin(), prefixes.end());
+}
+
 // Mirrors notebook join:
 //   wish_events JOIN products ON product_id
 //              JOIN categories ON mongo_product_id = categories.id
@@ -714,7 +737,7 @@ static void write_rules_csv(const std::string& path,
 // =========================================================
 // ── main ──────────────────────────────────────────────────
 // Usage:
-//   ./apriori_pipeline <csv> [K_LEVELS] [MIN_SUPPORT] [MIN_CONF] [MIN_LIFT] [MAX_ANTE] [MAX_CONS]
+//   ./apriori_pipeline <csv> [K_LEVELS] [MIN_SUPPORT] [MIN_CONF] [MIN_LIFT] [MAX_ANTE] [MAX_CONS] [OUTPUT_CSV]
 //
 // Defaults match the notebook:
 //   K_LEVELS=4  MIN_SUPPORT=0.02  MIN_CONF=0.60  MIN_LIFT=1.5  MAX_ANTE=3  MAX_CONS=2
@@ -743,6 +766,7 @@ int main(int argc, char* argv[]) {
     double MIN_LIFT       = (argc > 5) ? std::stod(argv[5]) : 1.5;
     int    max_ante_v     = (argc > 6) ? std::stoi(argv[6]) : 3;
     int    max_cons_v     = (argc > 7) ? std::stoi(argv[7]) : 2;
+    std::string output_csv = (argc > 8) ? argv[8] : "rules_out_cpp_bitset_merged.csv";
 
     std::optional<int> max_ante = (max_ante_v > 0) ? std::make_optional(max_ante_v) : std::nullopt;
     std::optional<int> max_cons = (max_cons_v > 0) ? std::make_optional(max_cons_v) : std::nullopt;
@@ -802,7 +826,8 @@ int main(int argc, char* argv[]) {
     BranchAncestry branch_ancestry;
     {
         auto t0 = std::chrono::high_resolution_clock::now();
-        branch_ancestry = build_branch_ancestry(load_res.cat_paths);
+        auto taxonomy_paths = expand_category_path_prefixes(load_res.cat_paths);
+        branch_ancestry = build_branch_ancestry(taxonomy_paths);
         double ms = std::chrono::duration<double,std::milli>(
             std::chrono::high_resolution_clock::now()-t0).count();
         std::cout << "[4] Built branch ancestry for " << branch_ancestry.size()
@@ -930,12 +955,12 @@ int main(int argc, char* argv[]) {
     }
 
     // Write CSV output -----------------------------------------------------
-    write_rules_csv("rules_out_cpp_bitset_merged.csv", scored);
+    write_rules_csv(output_csv, scored);
 
     double total_ms = std::chrono::duration<double,std::milli>(
         std::chrono::high_resolution_clock::now()-t_total).count();
     std::cout << "\nTotal pipeline: " << total_ms << " ms\n";
-    std::cout << "Output: rules_out_cpp_bitset_merged.csv\n\n";
+    std::cout << "Output: " << output_csv << "\n\n";
 
     // Preview top 5 --------------------------------------------------------
     std::cout << "Top 5 rules:\n";

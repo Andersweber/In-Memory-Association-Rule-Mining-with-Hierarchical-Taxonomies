@@ -68,8 +68,24 @@ def main() -> None:
         placeholder.unlink()
         print("Removed placeholder file: Data/Data_here")
 
-    print(f"Reading merged parquet from: {DATA_DIR}")
-    df = pd.read_parquet(DATA_DIR, engine="pyarrow")
+    named = DATA_DIR / "wishlist_data.parquet"
+    if named.exists():
+        source = named
+        print(f"Reading merged parquet from: {source}")
+        df = pd.read_parquet(source, engine="pyarrow")
+    else:
+        files = sorted(
+            p for p in DATA_DIR.glob("*.parquet")
+            if p.is_file() and not p.name.startswith("._")
+        )
+        if not files:
+            raise SystemExit(
+                f"No top-level parquet files found in {DATA_DIR}. "
+                "Place wishlist_data.parquet in Data/ or pass a folder with parquet parts."
+            )
+        source = DATA_DIR
+        print(f"Reading merged parquet files from: {DATA_DIR}")
+        df = pd.concat([pd.read_parquet(f, engine="pyarrow") for f in files], ignore_index=True)
 
     required = {"wishlist_id", "category_name"}
     missing  = required - set(df.columns)
@@ -120,7 +136,7 @@ def main() -> None:
                 "requested_wishlists": size,
                 "actual_wishlists":    int(kept_ids),
                 "rows":                int(len(sample_df)),
-                "source":              str(DATA_DIR),
+                "source":              str(source),
             }, indent=2),
             encoding="utf-8",
         )

@@ -59,7 +59,7 @@ conda install -c conda-forge arrow-cpp parquet-cpp
 
 The dataset is published on Zenodo and must be downloaded manually:
 
-**DOI: [10.5281/zenodo.20273912](https://doi.org/10.5281/zenodo.20273912)**
+**DOI: [10.5281/zenodo.20307390](https://doi.org/10.5281/zenodo.20307390)**
 
 Download the Parquet file from Zenodo and place it in the `Data/` folder (replacing the `Data_here` placeholder):
 
@@ -68,11 +68,12 @@ Data/
 └── wishlist_categories_merged.parquet   ← place downloaded file here
 ```
 
-The file contains exactly two columns:
+The file contains three columns:
 
 | Column | Type | Description |
 |---|---|---|
 | `wishlist_id` | string | Unique identifier for each wishlist |
+| `product_id` | string | Unique identifier for each product |
 | `category_name` | string | `>`-separated taxonomy path, e.g. `Clothing > Tops > T-Shirts` |
 
 ### Generate samples
@@ -177,7 +178,7 @@ Run:
 | 7: Rule-based candidate-space reduction | `rule_candidate_space` | Reduction stats |
 | 8: Held-out recall evaluation | `held_out_recall` | Figure 12 |
 
-**Experiments 6, 7, and 8 require the GoWish internal catalogue** (a directory with `products/` and `categories/` parquet sub-directories), passed via `--catalogue-base`. These experiments are automatically skipped with a clear message if the catalogue is not available — they will not run against the public Zenodo sample. Experiment 7 additionally requires a previously generated Cumulate rules CSV (passed via `--candidate-rules-csv`); it is automatically skipped if that flag is omitted.
+**Experiments 6, 7, and 8 require a product catalogue** passed via `--catalogue-base`. This can be the same merged parquet directory used for `base` (the file must include a `product_id` column), or a directory with `products/` and `categories/` parquet sub-directories. These experiments are automatically skipped with a clear message if the catalogue is not available. Experiment 7 additionally requires a previously generated Cumulate rules CSV (passed via `--candidate-rules-csv`); it is automatically skipped if that flag is omitted.
 
 ### Quick start (paper defaults, Experiments 1–5 only)
 
@@ -311,7 +312,7 @@ python Benchmark.py Data/samples/100000 --output-dir results \
 
 | Flag | Default | Description |
 |---|---|---|
-| `--catalogue-base` | *(same as `base`)* | Folder with `products/` and `categories/` parquet sub-directories |
+| `--catalogue-base` | *(same as `base`)* | Merged parquet file/directory or a folder with `products/` and `categories/` sub-directories |
 | `--catalogue-k-levels` | `3` | Hierarchy depth for catalogue tokenisation |
 
 **Experiment 7 — Candidate-space reduction**

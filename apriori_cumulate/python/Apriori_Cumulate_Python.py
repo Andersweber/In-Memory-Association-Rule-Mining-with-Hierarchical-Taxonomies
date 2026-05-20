@@ -259,7 +259,13 @@ def build_ancestors_from_tokens(
 # ---------------------------------------------------------------------------
 
 def load_data(base: str) -> pd.DataFrame:
-    return pd.read_parquet(base)
+    p = Path(base)
+    if p.is_dir():
+        files = sorted(p.glob("*.parquet"))
+        if not files:
+            raise FileNotFoundError(f"No .parquet files found in {p}")
+        return pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    return pd.read_parquet(p)
 
 
 def clean_data(df: pd.DataFrame) -> pd.DataFrame:

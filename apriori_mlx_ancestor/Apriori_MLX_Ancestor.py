@@ -124,7 +124,13 @@ def resolve_root(cli_path: str) -> Path:
 # ---------------------------------------------------------------------------
 
 def load_data(base: Path) -> pd.DataFrame:
-    df = pd.read_parquet(base)
+    if base.is_dir():
+        files = sorted(base.glob("*.parquet"))
+        if not files:
+            raise FileNotFoundError(f"No .parquet files found in {base}")
+        df = pd.concat([pd.read_parquet(f) for f in files], ignore_index=True)
+    else:
+        df = pd.read_parquet(base)
     print(f"  rows: {len(df):,}")
     return df
 

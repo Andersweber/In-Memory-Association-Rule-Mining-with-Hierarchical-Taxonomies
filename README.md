@@ -177,7 +177,7 @@ Run:
 | 7: Rule-based candidate-space reduction | `rule_candidate_space` | Reduction stats |
 | 8: Held-out recall evaluation | `held_out_recall` | Figure 12 |
 
-Experiment 7 additionally requires a previously generated Cumulate rules CSV (passed via `--candidate-rules-csv`); it is automatically skipped if that flag is omitted.
+**Experiments 6, 7, and 8 require the GoWish internal catalogue** (a directory with `products/` and `categories/` parquet sub-directories), passed via `--catalogue-base`. These experiments are automatically skipped with a clear message if the catalogue is not available — they will not run against the public Zenodo sample. Experiment 7 additionally requires a previously generated Cumulate rules CSV (passed via `--candidate-rules-csv`); it is automatically skipped if that flag is omitted.
 
 ### Quick start (paper defaults, Experiments 1–5 only)
 

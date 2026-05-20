@@ -182,7 +182,8 @@ def parse_args() -> argparse.Namespace:
         "Catalogue settings — Experiments 6 & 7")
     gc.add_argument(
         "--catalogue-base", default=None, metavar="DIR",
-        help="Folder containing products/ and categories/ parquet sub-directories. "
+        help="Merged parquet file/directory (wishlist_id, product_id, category_name) "
+             "or a directory with products/ and categories/ sub-directories. "
              "Defaults to <base> when omitted.",
     )
     gc.add_argument(
@@ -1191,28 +1192,40 @@ def _read_parts(folder: Path, columns: List[str]) -> pd.DataFrame:
 
 
 def _load_catalogue(base: Path) -> pd.DataFrame:
-    products = _read_parts(
-        base / "products",
-        ["product_id", "mongo_product_id", "title", "description"],
-    )
-    products = products[
-        products["mongo_product_id"].notna()
-        & (products["title"].notna() | products["description"].notna())
-    ][["product_id", "mongo_product_id"]]
+    if (base / "products").is_dir() and (base / "categories").is_dir():
+        products = _read_parts(
+            base / "products",
+            ["product_id", "mongo_product_id", "title", "description"],
+        )
+        products = products[
+            products["mongo_product_id"].notna()
+            & (products["title"].notna() | products["description"].notna())
+        ][["product_id", "mongo_product_id"]]
 
-    categories = _read_parts(base / "categories", ["id", "category_name"])
-    categories = categories[categories["category_name"].notna()][["id", "category_name"]]
+        categories = _read_parts(base / "categories", ["id", "category_name"])
+        categories = categories[categories["category_name"].notna()][["id", "category_name"]]
 
-    catalogue = (
-        products.merge(
-            categories.rename(columns={"id": "mongo_product_id"}),
-            on="mongo_product_id",
-            how="inner",
-        )[["product_id", "category_name"]]
-        .drop_duplicates()
-    )
+        catalogue = (
+            products.merge(
+                categories.rename(columns={"id": "mongo_product_id"}),
+                on="mongo_product_id",
+                how="inner",
+            )[["product_id", "category_name"]]
+            .drop_duplicates()
+        )
+    else:
+        # Merged parquet format: wishlist_id, product_id, category_name
+        if base.is_dir():
+            parts = _parquet_parts(base)
+            if not parts:
+                raise FileNotFoundError(f"No parquet files found in {base}")
+            df = pd.concat([pd.read_parquet(p) for p in parts], ignore_index=True)
+        else:
+            df = pd.read_parquet(base)
+        catalogue = df[["product_id", "category_name"]].drop_duplicates()
+
     if catalogue.empty:
-        raise RuntimeError("No categorized products found after joining products and categories.")
+        raise RuntimeError("No categorized products found.")
     return catalogue
 
 
@@ -2018,7 +2031,12 @@ def run_held_out_recall(args: argparse.Namespace, out_dir: Path) -> None:
     print(f"  Conf sweep     : {args.held_out_conf_sweep}")
     print(f"{'='*60}\n")
 
-    if not (cat_base / "products").exists() or not (cat_base / "categories").exists():
+    _cat_ok = (
+        ((cat_base / "products").is_dir() and (cat_base / "categories").is_dir())
+        or (cat_base.is_dir() and bool(list(cat_base.glob("*.parquet"))))
+        or (cat_base.is_file() and cat_base.suffix == ".parquet")
+    )
+    if not _cat_ok:
         print(
             "  [EXPERIMENT 8 skipped] Catalogue not found at "
             f"{cat_base}. Pass --catalogue-base to supply it."
@@ -2179,8 +2197,29 @@ def main() -> None:
     if "support_sweep" in run:
         run_support_sweep(args, out_root / "support_sweep")
 
+    # Experiments 6, 7, 8 require a product catalogue.  Supported formats:
+    #   - Old format: products/ and categories/ parquet sub-directories
+    #   - New format: merged parquet(s) with wishlist_id, product_id, category_name
+    # When --catalogue-base is not supplied we fall back to the sample dir (base).
+    _cat_base = Path(args.catalogue_base or args.base)
+    _has_catalogue = (
+        ((_cat_base / "products").is_dir() and (_cat_base / "categories").is_dir())
+        or (_cat_base.is_dir() and bool(list(_cat_base.glob("*.parquet"))))
+        or (_cat_base.is_file() and _cat_base.suffix == ".parquet")
+    )
+    _catalogue_hint = (
+        f"Provide --catalogue-base pointing to the merged parquet file or directory, "
+        f"or a directory with products/ and categories/ sub-directories."
+    )
+
     if "l0_pair_example" in run:
-        run_l0_pair_example(args, out_root / "l0_pair_example")
+        if not _has_catalogue:
+            print(
+                f"\n[EXPERIMENT 6 skipped] Catalogue not found at {_cat_base}. "
+                + _catalogue_hint
+            )
+        else:
+            run_l0_pair_example(args, out_root / "l0_pair_example")
 
     if "rule_candidate_space" in run:
         if not args.candidate_rules_csv:
@@ -2188,11 +2227,22 @@ def main() -> None:
                 "\n[EXPERIMENT 7 skipped] Provide --candidate-rules-csv to run "
                 "the rule candidate-space benchmark."
             )
+        elif not _has_catalogue:
+            print(
+                f"\n[EXPERIMENT 7 skipped] Catalogue not found at {_cat_base}. "
+                + _catalogue_hint
+            )
         else:
             run_rule_candidate_space(args, out_root / "rule_candidate_space")
 
     if "held_out_recall" in run:
-        run_held_out_recall(args, out_root / "held_out_recall")
+        if not _has_catalogue:
+            print(
+                f"\n[EXPERIMENT 8 skipped] Catalogue not found at {_cat_base}. "
+                + _catalogue_hint
+            )
+        else:
+            run_held_out_recall(args, out_root / "held_out_recall")
 
     total_elapsed = time.perf_counter() - total_start
     print(f"\n[{now_stamp()}] Benchmark finished in {format_elapsed(total_elapsed)}")

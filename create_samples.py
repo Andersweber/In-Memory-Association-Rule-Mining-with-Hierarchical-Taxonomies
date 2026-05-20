@@ -3,8 +3,8 @@
 create_samples.py — Generate wishlist samples from the merged parquet in Data/.
 
 Place your merged parquet file(s) in the Data/ folder
-(columns: wishlist_id, category_name), then run this script to produce
-size-limited samples used by the benchmarks.
+(columns: wishlist_id, product_id, category_name), then run this script to
+produce size-limited samples used by the benchmarks.
 
 Usage:
     python create_samples.py [--sizes 5000 20000 50000 100000] [--overwrite]

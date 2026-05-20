@@ -153,12 +153,10 @@ module load arrow   # or however Arrow is exposed on your cluster
 make CONDA_ENV=$CONDA_PREFIX apriori_cumulate_cpp
 ```
 
-Run:
+Run (positional args: `<base> <k> <support> <conf> <lift> <max_ante> <max_cons>`):
 
 ```bash
-./apriori_cumulate/cpp/apriori_cumulate_cpp Data/samples/100000 \
-    --k-levels 3 --min-support 0.02 --min-conf 0.6 --min-lift 1.5 \
-    --output rules_cpp.csv
+./apriori_cumulate/cpp/apriori_cumulate_cpp Data/samples/100000 3 0.02 0.6 1.5 3 2
 ```
 
 ---
@@ -297,6 +295,7 @@ python Benchmark.py Data/samples/100000 --output-dir results \
 | `--ksweep-conf` | `0.6` | Confidence |
 | `--ksweep-lift` | `1.5` | Lift |
 | `--ksweep-max-len` | `5` | Max itemset length |
+| `--cpp-exe` | *(auto-detected)* | Path to `apriori_cumulate_cpp` binary; auto-detected at `apriori_cumulate/cpp/apriori_cumulate_cpp`; C++ is included in the sweep only when the binary exists |
 
 **Experiment 5 — Support sweep**
 

@@ -46,6 +46,30 @@ import numpy as np
 import pandas as pd
 
 # ---------------------------------------------------------------------------
+# Global plot style — 22 pt font, clean spines
+# ---------------------------------------------------------------------------
+
+plt.rcParams.update({
+    "font.size":        22,
+    "axes.titlesize":   22,
+    "axes.labelsize":   22,
+    "xtick.labelsize":  18,
+    "ytick.labelsize":  18,
+    "legend.fontsize":  18,
+    "figure.dpi":       220,
+})
+
+# Okabe-Ito colorblind-safe palette
+OI_BLACK           = "#000000"
+OI_ORANGE          = "#E69F00"
+OI_SKY_BLUE        = "#56B4E9"
+OI_BLUISH_GREEN    = "#009E73"
+OI_YELLOW          = "#F0E442"
+OI_BLUE            = "#0072B2"
+OI_VERMILLION      = "#D55E00"
+OI_REDDISH_PURPLE  = "#CC79A7"
+
+# ---------------------------------------------------------------------------
 # Repo layout
 # ---------------------------------------------------------------------------
 
@@ -163,6 +187,12 @@ def parse_args() -> argparse.Namespace:
     g4.add_argument("--ksweep-conf",    type=float, default=0.6,  metavar="C")
     g4.add_argument("--ksweep-lift",    type=float, default=1.5,  metavar="L")
     g4.add_argument("--ksweep-max-len", type=int,   default=5,    metavar="M")
+    g4.add_argument(
+        "--cpp-exe", default=None, metavar="EXE",
+        help="Path to compiled apriori_cumulate_cpp binary. "
+             "Auto-detected at apriori_cumulate/cpp/apriori_cumulate_cpp when omitted. "
+             "Included in k-sweep only when the file exists.",
+    )
 
     # ── Experiment 5: support sweep ──────────────────────────────────────────
     g5 = p.add_argument_group(
@@ -277,6 +307,12 @@ def _first_int(text: str, patterns: List[str]) -> Optional[int]:
     return None
 
 
+def _first_ms(text: str, pattern: str) -> Optional[float]:
+    """Extract a millisecond timing captured by group 1 of 'pattern' and return seconds."""
+    m = re.search(pattern, text, flags=re.IGNORECASE)
+    return float(m.group(1)) / 1000.0 if m else None
+
+
 def extract_metrics(stdout: str, stderr: str) -> Dict[str, Any]:
     text = stdout + "\n" + stderr
     out: Dict[str, Any] = {
@@ -303,7 +339,8 @@ def extract_metrics(stdout: str, stderr: str) -> Dict[str, Any]:
         "frequent_itemsets": _first_int(
             text, [r"Frequent itemsets:\s*([0-9,]+)"]),
         "raw_rules": _first_int(
-            text, [r"Raw rules:\s*([0-9,]+)", r"Rules:\s*([0-9,]+)"]),
+            text, [r"Raw rules:\s*([0-9,]+)", r"Rules:\s*([0-9,]+)",
+                   r"\[6\] Rules \(raw\): ([0-9,]+) in"]),
         "score_rank_rules": _first_int(
             text, [r"After score\+rank:\s*([0-9,]+)\s+rules"]),
         "family_dedupe_rules": _first_int(
@@ -311,8 +348,21 @@ def extract_metrics(stdout: str, stderr: str) -> Dict[str, Any]:
         "antimirror_dedupe_rules": _first_int(
             text, [r"After antimirror dedupe:\s*([0-9,]+)\s+rules"]),
         "final_rules": _first_int(
-            text, [r"Found\s+([0-9,]+)\s+rules"]),
+            text, [r"Found\s+([0-9,]+)\s+rules",
+                   r"After antimirror dedupe:\s*([0-9,]+)\s+rules"]),
     }
+    # C++ binary emits millisecond timings — fill in any gaps not matched above
+    cpp_fills: Dict[str, Optional[Any]] = {
+        "load_data_seconds":            _first_ms(text, r"\[1\] Loaded \d+ rows in ([0-9.]+) ms"),
+        "build_transactions_seconds":   _first_ms(text, r"\[2\] Built \d+ transactions in ([0-9.]+) ms"),
+        "encode_transactions_seconds":  _first_ms(text, r"\[3\] Encoded .+ in ([0-9.]+) ms"),
+        "build_ancestor_map_seconds":   _first_ms(text, r"\[4b\] Built ancestors for \d+ items in ([0-9.]+) ms"),
+        "apriori_seconds":              _first_ms(text, r"\[5\] Apriori: \d+ itemsets in ([0-9.]+) ms"),
+        "association_rules_seconds":    _first_ms(text, r"\[6\] Rules \(raw\): \d+ in ([0-9.]+) ms"),
+    }
+    for _ck, _cv in cpp_fills.items():
+        if out.get(_ck) is None and _cv is not None:
+            out[_ck] = _cv
     core = [out.get("apriori_seconds"), out.get("association_rules_seconds")]
     out["algorithm_core_seconds"] = sum(float(v) for v in core if v is not None)
     return out
@@ -614,6 +664,12 @@ def _paper_axes(ax: Any) -> None:
     ax.tick_params(direction="in", top=True, right=True, width=1.0)
     for spine in ax.spines.values():
         spine.set_linewidth(1.0)
+    ax.title.set_fontsize(22)
+    ax.title.set_fontweight("bold")
+    ax.xaxis.label.set_fontsize(22)
+    ax.yaxis.label.set_fontsize(22)
+    for tick in ax.get_xticklabels() + ax.get_yticklabels():
+        tick.set_fontsize(18)
 
 
 def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) -> None:
@@ -658,19 +714,20 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         totals = [cumulate_rules[k] for k in sorted_k]
         incremental = [totals[0]] + [totals[i] - totals[i - 1] for i in range(1, len(totals))]
         xpos = list(range(len(sorted_k)))
-        # Each k-level bar gets its own color from tab10 (matching thesis figure)
-        _k_colors = ["#1f77b4", "#2ca02c", "#d62728", "#ff7f0e", "#9467bd",
-                     "#8c564b", "#e377c2", "#7f7f7f", "#bcbd22", "#17becf"]
+        # Each k-level bar gets its own Okabe-Ito color (thesis order: sky-blue, green, vermillion, orange, blue)
+        _k_colors = [OI_SKY_BLUE, OI_BLUISH_GREEN, OI_VERMILLION, OI_ORANGE, OI_BLUE,
+                     OI_REDDISH_PURPLE, OI_YELLOW, OI_BLACK]
         bar_colors = [_k_colors[i % len(_k_colors)] for i in range(len(sorted_k))]
-        fig, ax = plt.subplots(figsize=(8, 5))
+        fig, ax = plt.subplots(figsize=(10, 6))
         bars = ax.bar(xpos, incremental, color=bar_colors)
         ymax = max(v for v in incremental if v > 0) if any(v > 0 for v in incremental) else 1
+        ax.set_ylim(0, ymax * 1.22)
         for bar, inc, tot in zip(bars, incremental, totals):
             cx = bar.get_x() + bar.get_width() / 2
             ax.text(cx, bar.get_height() + ymax * 0.02,
-                    str(int(round(inc))), ha="center", va="bottom", fontsize=10, fontweight="bold")
-            ax.text(cx, bar.get_height() + ymax * 0.09,
-                    f"total={int(round(tot))}", ha="center", va="bottom", fontsize=8, color="0.4")
+                    str(int(round(inc))), ha="center", va="bottom", fontsize=18, fontweight="bold")
+            ax.text(cx, bar.get_height() + ymax * 0.10,
+                    f"total={int(round(tot))}", ha="center", va="bottom", fontsize=14, color="0.4")
         ax.set_title(
             f"Incremental rule discovery by k-level\n"
             f"(support={args.ksweep_support}, total = cumulative)",
@@ -694,10 +751,10 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         sorted_k = sorted(set(cumulate_rules) | set(mlxtend_rules))
         xpos = list(range(len(sorted_k)))
         width = 0.35
-        fig, ax = plt.subplots(figsize=(8, 5))
+        fig, ax = plt.subplots(figsize=(10, 6))
         impl_specs = [
-            (cumulate_rules, "Cumulate (Python/C++)", "0.35", -width / 2),
-            (mlxtend_rules,  "mlxtend (flat)",        "0.10",  width / 2),
+            (cumulate_rules, "Cumulate (Python/C++)", OI_SKY_BLUE, -width / 2),
+            (mlxtend_rules,  "mlxtend (flat)",        OI_ORANGE,    width / 2),
         ]
         y_max = max(
             (max(cumulate_rules.values()) if cumulate_rules else 0),
@@ -707,13 +764,13 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
             ys = [data.get(k, 0) for k in sorted_k]
             bars = ax.bar(
                 [x + offset for x in xpos], ys, width=width,
-                label=label, color=color, edgecolor="black",
+                label=label, color=color, edgecolor="none",
             )
             for bar, y in zip(bars, ys):
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + y_max * 0.01,
-                    str(int(round(y))), ha="center", va="bottom", fontsize=9,
+                    str(int(round(y))), ha="center", va="bottom", fontsize=14,
                 )
         ax.set_title(
             f"Final rules remaining by k-level\n"
@@ -722,7 +779,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         )
         ax.set_ylabel("Final rules (median)")
         ax.set_xticks(xpos, [f"k={k}" for k in sorted_k])
-        ax.legend(frameon=False)
+        ax.legend(frameon=True, framealpha=1.0)
         _paper_axes(ax)
         fig.tight_layout()
         fig.savefig(figs_dir / "final_rules_cumulate_vs_mlxtend_by_k.png", dpi=220)
@@ -730,9 +787,9 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
 
     # ── Figure 4: Median algorithm runtime by k-level ────────────────────────
     all_impls = [
-        ("python_cumulate", "Python Cumulate", "#1f77b4"),
-        ("cpp_cumulate",    "C++ Cumulate",    "#2ca02c"),
-        ("mlxtend_flat",    "mlxtend (flat)",  "#d62728"),
+        ("python_cumulate", "Python Cumulate", OI_SKY_BLUE),
+        ("cpp_cumulate",    "C++ Cumulate",    OI_BLUISH_GREEN),
+        ("mlxtend_flat",    "mlxtend (flat)",  OI_VERMILLION),
     ]
     present_impls = [
         (impl, lbl, col) for impl, lbl, col in all_impls
@@ -750,19 +807,19 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         width = min(0.28, 0.80 / n)
         start = -width * (n - 1) / 2
         xpos = list(range(len(k_values)))
-        fig, ax = plt.subplots(figsize=(8.5, 5))
+        fig, ax = plt.subplots(figsize=(10, 6))
         for idx, (impl, label, color) in enumerate(present_impls):
             ys = [runtime_by_impl.get(impl, {}).get(k, float("nan")) for k in k_values]
             ax.bar(
                 [x + start + idx * width for x in xpos], ys,
-                width=width, label=label, color=color, edgecolor="black",
+                width=width, label=label, color=color, edgecolor="none",
             )
         ax.set_title("Median algorithm runtime by k-level", fontweight="bold")
         ax.set_xlabel("k-level")
         ax.set_ylabel("Algorithm/core time (sec, log scale)")
         ax.set_yscale("log")
         ax.set_xticks(xpos, [str(k) for k in k_values])
-        ax.legend(frameon=False)
+        ax.legend(frameon=True, framealpha=1.0)
         _paper_axes(ax)
         fig.tight_layout()
         fig.savefig(figs_dir / "runtime_by_k_level_python_cpp.png", dpi=220)
@@ -785,8 +842,9 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
                 labels.append(label)
                 vals.append(v)
         if len(vals) >= 2:
-            fig, ax = plt.subplots(figsize=(8, 5))
-            ax.plot(range(len(vals)), vals, color="C0", marker="o")
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.plot(range(len(vals)), vals, color="#9467bd",
+                    marker="o", linewidth=2, markersize=9)
             ax.set_title(
                 f"Rule reduction through post-processing\n"
                 f"k={funnel_k}, support={args.ksweep_support:.2f}, "
@@ -816,26 +874,26 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
     if stack:
         sorted_k = sorted(stack)
         xpos = list(range(len(sorted_k)))
-        fig, ax = plt.subplots(figsize=(8, 5))
+        fig, ax = plt.subplots(figsize=(10, 6))
         finals  = [stack[k]["final"]   for k in sorted_k]
         mirrors = [stack[k]["mirror"]  for k in sorted_k]
         scores  = [stack[k]["sc_hier"] for k in sorted_k]
-        ax.bar(xpos, finals,  color="0.30", edgecolor="black", label="Final rules (kept)")
-        ax.bar(xpos, mirrors, bottom=finals, color="0.55", edgecolor="black",
+        ax.bar(xpos, finals,  color=OI_SKY_BLUE,   edgecolor="none", label="Final rules (kept)")
+        ax.bar(xpos, mirrors, bottom=finals, color=OI_ORANGE, edgecolor="none",
                label="Mirror duplicates removed")
         ax.bar(xpos, scores,  bottom=[f + m for f, m in zip(finals, mirrors)],
-               color="0.80", edgecolor="black", label="Score/hierarchy redundancy removed")
+               color=OI_VERMILLION, edgecolor="none", label="Score/hierarchy redundancy removed")
         for x, f in zip(xpos, finals):
             if f > 0:
                 ax.text(x, f / 2, str(int(round(f))), ha="center", va="center",
-                        color="white", fontsize=10, fontweight="bold")
+                        color="white", fontsize=16, fontweight="bold")
         ax.set_title(
             f"Cumulate rule filtering by k-level\n(support={args.ksweep_support})",
             fontweight="bold",
         )
         ax.set_ylabel("Rule count")
         ax.set_xticks(xpos, [f"k={k}" for k in sorted_k])
-        ax.legend(frameon=False)
+        ax.legend(frameon=True, framealpha=1.0)
         _paper_axes(ax)
         fig.tight_layout()
         fig.savefig(figs_dir / "thesis_redundancy_stacked.png", dpi=220)
@@ -843,18 +901,21 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
 
     # ── Figure 9: Phase breakdown — all k-levels × all implementations ────────
     phase_specs = [
-        ("build_transactions_seconds",  "transactions"),
-        ("encode_transactions_seconds", "encoding"),
-        ("build_ancestor_map_seconds",  "ancestor"),
         ("apriori_seconds",             "apriori"),
-        ("association_rules_seconds",   "rules"),
         ("postprocess_seconds",         "post"),
+        ("encode_transactions_seconds", "encoding"),
+        ("association_rules_seconds",   "rules"),
+        ("build_transactions_seconds",  "transactions"),
+        ("build_ancestor_map_seconds",  "ancestor"),
     ]
-    phase_colors = ["#4c78a8", "#f58518", "#54a24b", "#d62728", "#9467bd", "#8c564b"]
+    # Okabe-Ito colors matching the thesis: apriori=vermillion(red), post=brown, encoding=orange,
+    # rules=purple, transactions=blue, ancestor=green
+    phase_colors = [OI_VERMILLION, "#8c564b", OI_ORANGE, OI_REDDISH_PURPLE, OI_SKY_BLUE, OI_BLUISH_GREEN]
+    # Bar order matches thesis: cpp first, then mlx, then py
     impl_short = [
-        ("python_cumulate", "py"),
         ("cpp_cumulate",    "cpp"),
         ("mlxtend_flat",    "mlx"),
+        ("python_cumulate", "py"),
     ]
     bar_labels: List[str] = []
     phase_vals: Dict[str, List[float]] = {name: [] for _, name in phase_specs}
@@ -866,7 +927,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
             for field, name in phase_specs:
                 phase_vals[name].append(med(field, impl=impl, k=k) or 0.0)
     if bar_labels:
-        fig, ax = plt.subplots(figsize=(12, 6))
+        fig, ax = plt.subplots(figsize=(14, 7))
         bottom = [0.0] * len(bar_labels)
         for (field, name), color in zip(phase_specs, phase_colors):
             vals_p = phase_vals[name]
@@ -874,9 +935,11 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
             bottom = [b + v for b, v in zip(bottom, vals_p)]
         ax.set_title(
             f"Phase breakdown (support={args.ksweep_support}, confidence={args.ksweep_conf})",
+            fontweight="bold",
         )
         ax.set_ylabel("seconds")
-        ax.legend(ncol=3)
+        ax.legend(ncol=3, frameon=True, framealpha=1.0)
+        _paper_axes(ax)
         fig.tight_layout()
         fig.savefig(figs_dir / "phase_breakdown_baseline.png", dpi=220)
         plt.close(fig)
@@ -924,14 +987,15 @@ def _make_support_sweep_figures(
     assoc_t  = [med_s("association_rules_seconds",  s=s) for s in supports]
 
     if any(v is not None for v in final_r):
-        fig, ax1 = plt.subplots(figsize=(8, 5))
+        fig, ax1 = plt.subplots(figsize=(10, 6))
         for ys, label, marker, ls, color in [
-            (final_r, "Final rules", "o", "-",  "#1f77b4"),
-            (raw_r,   "Raw rules",   "s", "--", "#d62728"),
+            (final_r, "Final rules", "o", "-",  OI_BLUE),
+            (raw_r,   "Raw rules",   "s", "--", OI_VERMILLION),
         ]:
             if any(v is not None for v in ys):
                 ax1.plot(xpos, [float("nan") if v is None else v for v in ys],
-                         color=color, marker=marker, linestyle=ls, label=label)
+                         color=color, marker=marker, linestyle=ls, label=label, linewidth=2,
+                         markersize=8)
         ax1.set_xlabel("Minimum support")
         ax1.set_ylabel("Rules")
         ax1.set_xticks(xpos, [fmt_s(s) for s in supports])
@@ -940,12 +1004,16 @@ def _make_support_sweep_figures(
         ax2 = ax1.twinx()
         if any(v is not None for v in assoc_t):
             ax2.plot(xpos, [float("nan") if v is None else v for v in assoc_t],
-                     color="#2ca02c", marker="^", linestyle=":", label="Rule generation time")
+                     color=OI_BLUISH_GREEN, marker="^", linestyle=":", label="Rule generation time",
+                     linewidth=2, markersize=8)
         ax2.set_ylabel("Rule generation time (sec)")
+        ax2.yaxis.label.set_fontsize(22)
+        for tick in ax2.get_yticklabels():
+            tick.set_fontsize(18)
 
         lines1, labels1 = ax1.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
-        ax1.legend(lines1 + lines2, labels1 + labels2, frameon=False, loc="best")
+        ax1.legend(lines1 + lines2, labels1 + labels2, frameon=True, framealpha=1.0, loc="upper left")
         ax1.set_title("Python minimum support sensitivity", fontweight="bold")
         fig.tight_layout()
         fig.savefig(figs_dir / "python_support_sensitivity.png", dpi=220)
@@ -961,9 +1029,9 @@ def _make_support_sweep_figures(
             pass
 
     impl_styles: Dict[str, Dict[str, Any]] = {
-        "cpp_cumulate":    {"color": "#2ca02c", "marker": "o", "label": "C++ Cumulate"},
-        "python_cumulate": {"color": "#1f77b4", "marker": "^", "label": "Python Cumulate"},
-        "mlxtend_flat":    {"color": "#d62728", "marker": "s", "label": "mlxtend (flat)"},
+        "cpp_cumulate":    {"color": OI_BLUISH_GREEN, "marker": "o", "label": "C++ Cumulate"},
+        "python_cumulate": {"color": OI_SKY_BLUE,     "marker": "^", "label": "Python Cumulate"},
+        "mlxtend_flat":    {"color": OI_VERMILLION,   "marker": "s", "label": "mlxtend (flat)"},
     }
     scatter: Dict[str, tuple] = {}
     for r in all_rows:
@@ -979,11 +1047,15 @@ def _make_support_sweep_figures(
             scatter[impl][1].append(y)
 
     if scatter:
-        fig, ax = plt.subplots(figsize=(8, 5))
-        for impl, (xs, ys) in scatter.items():
+        fig, ax = plt.subplots(figsize=(10, 6))
+        # Plot in thesis legend order: C++, Python, mlxtend
+        for impl in ["cpp_cumulate", "python_cumulate", "mlxtend_flat"]:
+            if impl not in scatter:
+                continue
+            xs, ys = scatter[impl]
             style = impl_styles[impl]
             ax.scatter(xs, ys, color=style["color"], marker=style["marker"],
-                       label=style["label"], s=60)
+                       label=style["label"], s=80, zorder=3)
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlabel("Apriori core time (s, log scale)")
@@ -992,7 +1064,7 @@ def _make_support_sweep_figures(
             "Efficiency: rules found vs algorithm time\n(all k-levels and support values)",
             fontweight="bold",
         )
-        ax.legend(frameon=False)
+        ax.legend(frameon=True, framealpha=1.0)
         _paper_axes(ax)
         fig.tight_layout()
         fig.savefig(figs_dir / "thesis_efficiency_scatter.png", dpi=220)
@@ -1014,7 +1086,8 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
     print(f"{'='*60}\n")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # python_cumulate and mlxtend_flat at each K
+    _cpp_exe_path = Path(getattr(args, "cpp_exe", None) or
+                         REPO_ROOT / "apriori_cumulate" / "cpp" / "apriori_cumulate_cpp")
     implementations = [
         ("python_cumulate", str(CUMULATE_PIPELINE), [
             "--max-ante-len", str(args.ksweep_max_len),
@@ -1024,6 +1097,8 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
             "--max-len", str(args.ksweep_max_len),
         ]),
     ]
+    if _cpp_exe_path.exists():
+        implementations.append(("cpp_cumulate", str(_cpp_exe_path), []))
 
     rows: List[Dict[str, Any]] = []
     for k in args.ksweep_k:
@@ -1033,7 +1108,7 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                 run_dir   = out_dir / "runs" / run_id
                 rules_file = run_dir / "rules.csv"
 
-                # mlxtend_flat has no --k-levels flag; use --level 0 (flat mode)
+                # mlxtend_flat has no --k-levels flag; cpp_cumulate takes positional args
                 if impl == "mlxtend_flat":
                     command = [
                         args.python_exe, script, args.base,
@@ -1042,6 +1117,17 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                         "--min-lift",    str(args.ksweep_lift),
                         "--output",      str(rules_file),
                     ] + extra_args
+                elif impl == "cpp_cumulate":
+                    # C++ binary: <exe> <base> <k> <support> <conf> <lift> <max_ante> <max_cons>
+                    command = [
+                        script, args.base,
+                        str(k),
+                        str(args.ksweep_support),
+                        str(args.ksweep_conf),
+                        str(args.ksweep_lift),
+                        str(args.ksweep_max_len),
+                        str(args.ksweep_max_len),
+                    ]
                 else:
                     command = [
                         args.python_exe, script, args.base,

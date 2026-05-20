@@ -62,6 +62,12 @@ def main() -> None:
     if not DATA_DIR.exists():
         raise SystemExit(f"Data/ folder not found at {DATA_DIR}")
 
+    # Remove the Git placeholder file if present (it would confuse pd.read_parquet)
+    placeholder = DATA_DIR / "Data_here"
+    if placeholder.exists():
+        placeholder.unlink()
+        print("Removed placeholder file: Data/Data_here")
+
     print(f"Reading merged parquet from: {DATA_DIR}")
     df = pd.read_parquet(DATA_DIR, engine="pyarrow")
 
@@ -120,8 +126,8 @@ def main() -> None:
         )
 
     print(f"\nDone. Samples are under {DEFAULT_OUTPUT}/")
-    print("Pass a sample folder to any pipeline or to ProductionBenchmark.py:")
-    print(f"  python ProductionBenchmark.py Data/samples/100000")
+    print("Pass a sample folder to any pipeline or to Benchmark.py:")
+    print(f"  python Benchmark.py Data/samples/100000 --output-dir results")
 
 
 if __name__ == "__main__":

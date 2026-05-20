@@ -2,6 +2,8 @@
 
 Code repository for the paper *"In-Memory Association Rule Mining with Hierarchical Taxonomies"* (CIKM '26).
 
+> **Paper & code:** [github.com/Andersweber/In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies](https://github.com/Andersweber/In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies)
+
 ## Repository structure
 
 ```
@@ -268,3 +270,4 @@ benchmark_results/
         support_sweep_summary.csv ← Figures 5,6 + Table 11
         runs/
 ```
+

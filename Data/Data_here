@@ -1,0 +1,6 @@
+Place your merged parquet file here. See README for download instructions.
+
+Download from Zenodo: https://doi.org/10.5281/zenodo.20273912
+
+Expected file: wishlist_categories_merged.parquet
+Expected columns: wishlist_id (string), category_name (string)

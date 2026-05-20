@@ -65,7 +65,7 @@ Download the Parquet file from Zenodo and place it in the `Data/` folder (replac
 
 ```
 Data/
-└── wishlist_categories_merged.parquet   ← place downloaded file here
+└── wishlist_data.parquet   ← place downloaded file here
 ```
 
 The file contains three columns:

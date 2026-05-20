@@ -12,7 +12,7 @@ LIB := $(CONDA_ENV)/lib
 # Use g++ by default (works on Linux clusters); override with CXX=clang++ on macOS.
 CXX           ?= g++
 CXXFLAGS_FAST := -std=c++17 -O3 -march=native -I$(INC)
-LDFLAGS       := -L$(LIB) -larrow -larrow_acero -larrow_dataset -lparquet -Wl,-rpath,$(LIB)
+LDFLAGS       := -L$(LIB) -larrow -larrow_dataset -lparquet -Wl,-rpath,$(LIB)
 
 apriori_cumulate_cpp: Apriori_Cumulate_CPP.cpp apriori.hpp association_rules.hpp fpcommon.hpp
 	$(CXX) $(CXXFLAGS_FAST) Apriori_Cumulate_CPP.cpp -o apriori_cumulate_cpp $(LDFLAGS)

@@ -1184,7 +1184,7 @@ def run_full_dataset_scalability(args: argparse.Namespace, out_dir: Path) -> Non
     cpp_exe = Path(getattr(args, "cpp_exe", None) or
                    REPO_ROOT / "apriori_cumulate" / "cpp" / "apriori_cumulate_cpp")
 
-    implementations: List[tuple[str, List[str]]] = [
+    implementations: List[tuple[str, List[str], bool]] = [
         ("python_cumulate", [
             args.python_exe, str(CUMULATE_PIPELINE), str(full_base),
             "--k-levels", str(args.full_k),
@@ -1194,7 +1194,7 @@ def run_full_dataset_scalability(args: argparse.Namespace, out_dir: Path) -> Non
             "--max-ante-len", str(args.full_max_ante_len),
             "--max-cons-len", str(args.full_max_cons_len),
             "--max-len", str(max_len),
-        ]),
+        ], True),
     ]
     if cpp_exe.exists():
         implementations.append(("cpp_cumulate", [
@@ -1205,13 +1205,16 @@ def run_full_dataset_scalability(args: argparse.Namespace, out_dir: Path) -> Non
             str(args.full_lift),
             str(args.full_max_ante_len),
             str(args.full_max_cons_len),
-        ]))
+        ], False))
 
     rows: List[Dict[str, Any]] = []
-    for impl, base_cmd in implementations:
+    for impl, base_cmd, uses_output_flag in implementations:
         run_dir = out_dir / "runs" / impl
         rules_file = run_dir / "rules.csv"
-        command = base_cmd + [str(rules_file)]
+        if uses_output_flag:
+            command = base_cmd + ["--output", str(rules_file)]
+        else:
+            command = base_cmd + [str(rules_file)]
         print(f"Running {impl} on full dataset …", flush=True)
         metrics = run_subprocess(command, run_dir)
         row = {

@@ -129,7 +129,7 @@ The SLURM job script (`run_benchmark.sh`) then loaded `gcc/13.2.0` at runtime so
 
 The dataset is published on Zenodo and must be downloaded manually:
 
-**DOI: [10.5281/zenodo.20307390](https://doi.org/10.5281/zenodo.20307390)**
+**DOI: [10.5281/zenodo.20307389](https://doi.org/10.5281/zenodo.20307389)**
 
 Download the Parquet file from Zenodo and place it in the `Data/` folder (replacing the `Data_here` placeholder):
 

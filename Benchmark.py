@@ -809,9 +809,12 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         plt.close(fig)
 
     # ── Figure 3: Final rules remaining by k-level (cumulate vs mlxtend) ────
+    mlxtend_impl = "mlxtend_flat"
+    mlxtend_label = "mlxtend (flat, leaf path)"
+
     mlxtend_rules: Dict[int, float] = {}
     for k in k_values:
-        v = med("final_rules", impl="mlxtend_flat", k=k)
+        v = med("final_rules", impl=mlxtend_impl, k=k)
         if v is not None:
             mlxtend_rules[k] = v
 
@@ -822,7 +825,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         fig, ax = plt.subplots(figsize=(6.2, 3.4))
         impl_specs = [
             (cumulate_rules, "Cumulate (Python/C++)", COL_CUMULATE_BAR, -width / 2),
-            (mlxtend_rules,  "mlxtend (flat)",        COL_ORANGE,        width / 2),
+            (mlxtend_rules,  mlxtend_label,           COL_ORANGE,        width / 2),
         ]
         y_max = max(
             (max(cumulate_rules.values()) if cumulate_rules else 0),
@@ -858,7 +861,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
     all_impls = [
         ("python_cumulate", "Python Cumulate", OI_SKY_BLUE),
         ("cpp_cumulate",    "C++ Cumulate",    OI_BLUISH_GREEN),
-        ("mlxtend_flat",    "mlxtend (flat)",  OI_VERMILLION),
+        ("mlxtend_flat",    "mlxtend (flat, leaf path)", OI_VERMILLION),
     ]
     present_impls = [
         (impl, lbl, col) for impl, lbl, col in all_impls
@@ -1110,6 +1113,7 @@ def _make_support_sweep_figures(
     impl_styles: Dict[str, Dict[str, Any]] = {
         "cpp_cumulate":    {"color": OI_BLUISH_GREEN, "marker": "o", "label": "C++ Cumulate"},
         "python_cumulate": {"color": OI_SKY_BLUE,     "marker": "^", "label": "Python Cumulate"},
+        "mlxtend_basic":   {"color": OI_VERMILLION,   "marker": "s", "label": "mlxtend (basic)"},
         "mlxtend_flat":    {"color": OI_VERMILLION,   "marker": "s", "label": "mlxtend (flat)"},
     }
     scatter: Dict[str, tuple] = {}
@@ -1128,7 +1132,7 @@ def _make_support_sweep_figures(
     if scatter:
         fig, ax = plt.subplots(figsize=(7.0, 4.5))
         # Plot in thesis legend order: C++, Python, mlxtend
-        for impl in ["cpp_cumulate", "python_cumulate", "mlxtend_flat"]:
+        for impl in ["cpp_cumulate", "python_cumulate", "mlxtend_basic", "mlxtend_flat"]:
             if impl not in scatter:
                 continue
             xs, ys = scatter[impl]
@@ -1177,7 +1181,10 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
             "--max-cons-len", str(args.ksweep_max_cons_len),
             "--max-len",      str(_ksweep_max_len),
         ]),
+        # Flat mlxtend is the unmodified leaf-level baseline. It is independent
+        # of K, so the same full leaf-path command is repeated for each K value.
         ("mlxtend_flat", str(MLX_FLAT_PIPELINE), [
+            "--level", "leaf-path",
             "--max-len", str(_ksweep_max_len),
         ]),
     ]
@@ -1235,7 +1242,6 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                 run_dir   = out_dir / "runs" / run_id
                 rules_file = run_dir / "rules.csv"
 
-                # mlxtend_flat has no --k-levels flag; cpp_cumulate takes positional args
                 if impl == "mlxtend_flat":
                     command = [
                         args.python_exe, script, args.mining_base,
@@ -1325,6 +1331,7 @@ def run_support_sweep(args: argparse.Namespace, out_dir: Path) -> None:
         [args.python_exe, str(MLX_FLAT_PIPELINE), args.mining_base,
          "--min-support", str(_w_s), "--min-conf", str(args.ssweep_conf),
          "--min-lift", str(args.ssweep_lift),
+         "--level", "leaf-path",
          "--max-len", str(_warmup_max_len),
          "--output", str(warmup_dir / "rules_mlx.csv")],
     ] + ([
@@ -1347,6 +1354,7 @@ def run_support_sweep(args: argparse.Namespace, out_dir: Path) -> None:
             "--max-len",      str(_ssweep_max_len),
         ]),
         ("mlxtend_flat", str(MLX_FLAT_PIPELINE), [
+            "--level", "leaf-path",
             "--max-len", str(_ssweep_max_len),
         ]),
     ]

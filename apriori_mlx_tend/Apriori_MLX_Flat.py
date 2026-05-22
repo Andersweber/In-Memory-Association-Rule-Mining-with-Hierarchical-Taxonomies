@@ -19,7 +19,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Union
 
 import pandas as pd
 from mlxtend.frequent_patterns import apriori, association_rules
@@ -66,7 +66,12 @@ def _parse_optional_int(val) -> Optional[int]:
     return int(val)
 
 
-def _level_type(v: str) -> int:
+LevelSpec = Union[int, str]
+
+
+def _level_type(v: str) -> LevelSpec:
+    if v in ("leaf-path", "full-path", "full"):
+        return "leaf_path"
     if v in ("leaf", "-1"):
         return -1
     try:
@@ -85,7 +90,8 @@ def parse_args():
                         "(columns: wishlist_id, category_name).")
     p.add_argument("--level", type=_level_type, default=0,
                    help="Taxonomy depth of category to use as item "
-                        "(0=root, 1=second, …, leaf/-1=deepest).")
+                        "(0=root, 1=second, ..., leaf/-1=deepest label, "
+                        "leaf-path/full-path=unique full leaf path).")
     p.add_argument("--min-support",  type=float, default=0.01, metavar="S")
     p.add_argument("--min-conf",     type=float, default=0.3,  metavar="C")
     p.add_argument("--min-lift",     type=float, default=1.0,  metavar="L")
@@ -134,10 +140,12 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 # Category extraction at a given taxonomy level
 # ---------------------------------------------------------------------------
 
-def _extract_level(category_name: str, level: int) -> Optional[str]:
+def _extract_level(category_name: str, level: LevelSpec) -> Optional[str]:
     parts = [p.strip() for p in category_name.split(">") if p.strip()]
     if not parts:
         return None
+    if level == "leaf_path":
+        return " > ".join(parts)
     if level == -1:
         return parts[-1]
     return parts[level] if level < len(parts) else None
@@ -147,7 +155,7 @@ def _extract_level(category_name: str, level: int) -> Optional[str]:
 # Build transactions & encode
 # ---------------------------------------------------------------------------
 
-def build_transactions(df: pd.DataFrame, level: int) -> Tuple[List[List[str]], int]:
+def build_transactions(df: pd.DataFrame, level: LevelSpec) -> Tuple[List[List[str]], int]:
     df = df.copy()
     df["item"] = df["category_name"].apply(lambda s: _extract_level(s, level))
     df = df.dropna(subset=["item"])

@@ -6,7 +6,22 @@
       "Bash(python -c \"lines = open\\('Benchmark.py', encoding='utf-8'\\).readlines\\(\\); print\\(f'Total lines: {len\\(lines\\)}'\\)\")",
       "Bash(python -c \"import zipfile; z = zipfile.ZipFile\\('GoWish___Thesis \\(1\\).zip'\\); print\\('\\\\n'.join\\(z.namelist\\(\\)\\)\\)\")",
       "Bash(python -m py_compile \"C:\\\\Users\\\\awchr\\\\OneDrive\\\\Dokumenter\\\\GitHub\\\\In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies\\\\Benchmark.py\")",
-      "Bash(python -c \"import zipfile; z = zipfile.ZipFile\\('results.zip'\\); print\\('\\\\n'.join\\(n for n in z.namelist\\(\\) if n.endswith\\('.png'\\)\\)\\)\")"
+      "Bash(python -c \"import zipfile; z = zipfile.ZipFile\\('results.zip'\\); print\\('\\\\n'.join\\(n for n in z.namelist\\(\\) if n.endswith\\('.png'\\)\\)\\)\")",
+      "Bash(ls \"C:\\\\Users\\\\awchr\\\\OneDrive\\\\Dokumenter\\\\GitHub\\\\Bachelor_final\\\\benchmark_results\\\\memory_100k\\\\\" 2>/dev/null || echo \"NOT FOUND\")",
+      "Bash(ls \"/mnt/c/Users/awchr/OneDrive/Dokumenter/GitHub/Bachelor_final/benchmark_results/memory_100k/\" 2>/dev/null || echo \"NOT FOUND\")",
+      "PowerShell(Compare-Object \\(Get-Content \"C:\\\\Users\\\\awchr\\\\OneDrive\\\\Dokumenter\\\\GitHub\\\\Bachelor_final\\\\apriori_cumulate\\\\python\\\\Apriori_Cumulate_Python.py\"\\) \\(Get-Content \"C:\\\\Users\\\\awchr\\\\OneDrive\\\\Dokumenter\\\\GitHub\\\\In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies\\\\apriori_cumulate\\\\python\\\\Apriori_Cumulate_Python.py\"\\) | Select-Object -First 50)",
+      "PowerShell(python -m py_compile \"C:\\\\Users\\\\awchr\\\\OneDrive\\\\Dokumenter\\\\GitHub\\\\In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies\\\\Benchmark.py\" 2>&1)",
+      "PowerShell(if \\($LASTEXITCODE -eq 0\\) { \"OK\" } else { \"SYNTAX ERROR\" })",
+      "Read(//c/Users/awchr/OneDrive/Skrivebord/neek/**)",
+      "Bash(python -c \"import zipfile; z=zipfile.ZipFile\\('figures.zip'\\); [print\\(n\\) for n in z.namelist\\(\\)]\")",
+      "Bash(python -c \"import zipfile; z=zipfile.ZipFile\\('figures.zip'\\); z.extractall\\('figures_extracted'\\)\")",
+      "Bash(ssh -G hendrix)",
+      "Bash(src=\"C:/Users/awchr/OneDrive/Skrivebord/neek/figures_extracted\" *)",
+      "Read(//mnt/c/Users/awchr/OneDrive/Skrivebord/neek/**)",
+      "Read(//mnt/c/Users/awchr/OneDrive/Skrivebord/**)",
+      "Bash(find / -name \"figures_extracted\" -type d 2>/dev/null | head -5 *)",
+      "Bash(scp \"C:/Users/awchr/OneDrive/Dokumenter/GitHub/In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies/Benchmark.py\" hendrix:/home/zrf539/BachelorBenchmark/Benchmark.py)",
+      "Bash(xargs grep -l \"979\\\\|full_dataset\\\\|978\")"
     ]
   }
 }

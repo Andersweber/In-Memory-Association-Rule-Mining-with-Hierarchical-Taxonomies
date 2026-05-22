@@ -45,13 +45,83 @@ pip install -r requirements.txt
 
 Requires Python ≥ 3.10.
 
-### C++ (optional — only needed for `Apriori_Cumulate_CPP`)
+### C++ — build before running the benchmark
+
+> **The C++ binary must be compiled before running `Benchmark.py`.**
+> If the binary is not present at `apriori_cumulate/cpp/apriori_cumulate_cpp`, `Benchmark.py` silently skips the C++ implementation and Figures 4 and 6 will be incomplete.
 
 The C++ pipeline requires [Apache Arrow](https://arrow.apache.org/) with Parquet support. The easiest way is via Conda:
 
 ```bash
-conda install -c conda-forge arrow-cpp parquet-cpp
+# Create (or reuse) a conda environment and activate it — $CONDA_PREFIX must be set
+conda create -n armmht python=3.11 -y   # skip if you already have an env
+conda activate armmht
+conda install -c conda-forge arrow-cpp parquet-cpp -y
 ```
+
+Then build the binary from the repo root:
+
+```bash
+cd apriori_cumulate/cpp
+make CONDA_ENV=$CONDA_PREFIX apriori_cumulate_cpp
+cd ../..
+```
+
+On macOS, use Clang:
+
+```bash
+cd apriori_cumulate/cpp
+make CONDA_ENV=$CONDA_PREFIX CXX=clang++ apriori_cumulate_cpp
+cd ../..
+```
+
+On a Linux cluster with a module system (e.g. SLURM):
+
+```bash
+module load arrow   # or however Arrow is exposed on your cluster
+cd apriori_cumulate/cpp
+make CONDA_ENV=$CONDA_PREFIX apriori_cumulate_cpp
+cd ../..
+```
+
+Verify the build:
+
+```bash
+ls -lh apriori_cumulate/cpp/apriori_cumulate_cpp
+# Expected: a file of a few hundred KB, executable bit set
+```
+
+### How the thesis run was executed (UCPH Hendrix cluster)
+
+No conda was available on the cluster. Instead a Python virtualenv was used, and the C++ binary was compiled against Arrow headers bundled inside the pyarrow pip package:
+
+```bash
+# 1. Load Python and create virtualenv
+module load python/3.11.3
+python -m venv ~/myenv
+source ~/myenv/bin/activate
+pip install pyarrow pandas matplotlib numpy scipy mlxtend
+
+# 2. Create .so symlinks (pyarrow ships versioned-only .so.2400 files)
+ARROW_INCLUDE=$(python -c "import pyarrow; print(pyarrow.get_include())")
+ARROW_LIBDIR=$(python -c "import pyarrow; print(pyarrow.get_library_dirs()[0])")
+ln -s $ARROW_LIBDIR/libarrow.so.2400 $ARROW_LIBDIR/libarrow.so
+ln -s $ARROW_LIBDIR/libparquet.so.2400 $ARROW_LIBDIR/libparquet.so
+
+# 3. Compile (gcc/13.2.0 required; c++2a = C++20)
+module load gcc/13.2.0
+cd apriori_cumulate/cpp
+g++ -O2 -std=c++2a \
+    -I$ARROW_INCLUDE \
+    -L$ARROW_LIBDIR \
+    -Wl,-rpath,$ARROW_LIBDIR \
+    Apriori_Cumulate_CPP.cpp \
+    -larrow -lparquet \
+    -o apriori_cumulate_cpp
+cd ../..
+```
+
+The SLURM job script (`run_benchmark.sh`) then loaded `gcc/13.2.0` at runtime so the compiled binary finds the correct `libstdc++`, activated the virtualenv, and ran the full benchmark command from Step 3 above.
 
 ---
 
@@ -104,6 +174,8 @@ To generate specific sizes only:
 python create_samples.py --sizes 20000 100000
 ```
 
+> **Sampling method:** Wishlists are selected with a stride of 3 (`all_ids[::3][:N]`), not by taking the first N. This ensures the sample is spread evenly across the full dataset rather than concentrated in the earliest records.
+
 ---
 
 ## Running the pipelines individually
@@ -115,7 +187,7 @@ All scripts take the sample directory as their first argument.
 ```bash
 python apriori_cumulate/python/Apriori_Cumulate_Python.py Data/samples/100000 \
     --k-levels 3 --min-support 0.02 --min-conf 0.6 --min-lift 1.5 \
-    --max-ante-len 3 --max-cons-len 2 \
+    --max-ante-len 3 --max-cons-len 2 --max-len 5 \
     --output rules_python.csv
 ```
 
@@ -138,7 +210,26 @@ python apriori_mlx_tend/Apriori_MLX_Flat.py Data/samples/100000 \
 
 ### C++ Cumulate
 
-Build first (requires Arrow/Parquet; pass your Conda env path):
+Build first (see [C++ — build before running the benchmark](#c----build-before-running-the-benchmark)).
+
+Run (positional args: `<base> <k> <support> <conf> <lift> <max_ante> <max_cons> [output]`):
+
+```bash
+./apriori_cumulate/cpp/apriori_cumulate_cpp Data/samples/100000 3 0.02 0.6 1.5 3 2
+```
+
+---
+
+## Reproducing the thesis figures exactly
+
+The commands below reproduce **all figures and tables** in the paper using the identical parameters that generated the published results:
+
+- 100k wishlist sample → 92,160 filtered transactions
+- K-sweep: K = 1, 2, 3, 4, 5 · support = 0.02 · conf = 0.6 · lift = 1.5 · max\_ante = 3 · max\_cons = 2
+- Support sweep: K = 3 · support ∈ {0.05, 0.03, 0.02, 0.01} · same conf/lift/lengths
+- Sensitivity grid: τ ∈ {0.5, 0.6, 0.7} · λ ∈ {1.2, 1.5, 2.0}
+
+**Step 1 — Build the C++ binary** (skip if already built):
 
 ```bash
 cd apriori_cumulate/cpp
@@ -146,18 +237,93 @@ make CONDA_ENV=$CONDA_PREFIX apriori_cumulate_cpp
 cd ../..
 ```
 
-On Linux with a module system (e.g. SLURM cluster):
+**Step 2 — Generate the 100k sample** (skip if `Data/samples/100000/` already exists):
 
 ```bash
-module load arrow   # or however Arrow is exposed on your cluster
-make CONDA_ENV=$CONDA_PREFIX apriori_cumulate_cpp
+python create_samples.py --sizes 100000
 ```
 
-Run (positional args: `<base> <k> <support> <conf> <lift> <max_ante> <max_cons>`):
+**Step 3 — Run all benchmark experiments** (all 8 experiments, including Experiments 6–8 which require `wishlist_data.parquet` via `--catalogue-base`):
 
 ```bash
-./apriori_cumulate/cpp/apriori_cumulate_cpp Data/samples/100000 3 0.02 0.6 1.5 3 2
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/thesis_repro \
+    --catalogue-base Data/wishlist_data.parquet \
+    --sweep-k 3 --sweep-support 0.02 \
+    --sweep-tau 0.5 0.6 0.7 --sweep-lambda 1.2 1.5 2.0 \
+    --sweep-max-ante-len 3 --sweep-max-cons-len 2 \
+    --basic-k 3 --basic-support 0.02 --basic-conf 0.6 --basic-lift 1.5 \
+    --basic-max-len 5 \
+    --example-k 5 --example-support 0.02 --example-conf 0.6 --example-lift 1.5 \
+    --example-max-ante-len 3 --example-max-cons-len 2 \
+    --ksweep-k 1 2 3 4 5 \
+    --ksweep-support 0.02 --ksweep-conf 0.6 --ksweep-lift 1.5 \
+    --ksweep-max-ante-len 3 --ksweep-max-cons-len 2 \
+    --ssweep-support 0.05 0.03 0.02 0.01 \
+    --ssweep-k 3 --ssweep-conf 0.6 --ssweep-lift 1.5 \
+    --ssweep-max-ante-len 3 --ssweep-max-cons-len 2 \
+    --catalogue-k-levels 3 \
+    --held-out-train-frac 0.8 \
+    --held-out-mine-conf 0.50 \
+    --held-out-final-conf 0.60 \
+    --held-out-conf-sweep 0.50,0.55,0.60,0.65,0.70,0.75,0.80 \
+    --repeats 3
 ```
+
+**Step 3 (SLURM alternative)** — On a SLURM cluster, save the following as `run_benchmark.sh` and submit with `sbatch run_benchmark.sh`:
+
+```bash
+#!/bin/bash
+#SBATCH --job-name=benchmark
+#SBATCH --output=benchmark_%j.out
+#SBATCH --error=benchmark_%j.err
+#SBATCH --time=08:00:00
+#SBATCH --mem=48G
+
+module load gcc/13.2.0
+source /home/$USER/myenv/bin/activate
+cd /path/to/BachelorBenchmark
+
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/thesis_repro \
+    --catalogue-base Data/wishlist_data.parquet \
+    --sweep-k 3 --sweep-support 0.02 \
+    --sweep-tau 0.5 0.6 0.7 --sweep-lambda 1.2 1.5 2.0 \
+    --sweep-max-ante-len 3 --sweep-max-cons-len 2 \
+    --basic-k 3 --basic-support 0.02 --basic-conf 0.6 --basic-lift 1.5 \
+    --basic-max-len 5 \
+    --example-k 5 --example-support 0.02 --example-conf 0.6 --example-lift 1.5 \
+    --example-max-ante-len 3 --example-max-cons-len 2 \
+    --ksweep-k 1 2 3 4 5 \
+    --ksweep-support 0.02 --ksweep-conf 0.6 --ksweep-lift 1.5 \
+    --ksweep-max-ante-len 3 --ksweep-max-cons-len 2 \
+    --ssweep-support 0.05 0.03 0.02 0.01 \
+    --ssweep-k 3 --ssweep-conf 0.6 --ssweep-lift 1.5 \
+    --ssweep-max-ante-len 3 --ssweep-max-cons-len 2 \
+    --catalogue-k-levels 3 \
+    --held-out-train-frac 0.8 \
+    --held-out-mine-conf 0.50 \
+    --held-out-final-conf 0.60 \
+    --held-out-conf-sweep 0.50,0.55,0.60,0.65,0.70,0.75,0.80 \
+    --repeats 3
+```
+
+**Expected rule counts** at the baseline (K=3, support=0.02, conf=0.6, lift=1.5):
+
+| Stage | Count |
+|---|---|
+| Raw rules | 138 |
+| After score+rank (lift ≥ 1.5) | 136 |
+| After family dedupe | 136 |
+| After antimirror dedupe (final) | 128 |
+
+Final rule counts by K-level: K=1 → 0, K=2 → 71, K=3 → 128, K=4 → 490, K=5 → 970.
+
+**Output figures** are written to `results/thesis_repro/k_sweep/figures/` and `results/thesis_repro/support_sweep/figures/`.
+
+> **Note:** Runtime figures (Fig 4) show real wall-clock times from your machine and will differ from the thesis values, which were measured on a 32-core HPC node. Rule counts (Figs 2, 3, 7, 8) are deterministic and should match exactly when using the same data and parameters.
+
+> **Benchmarking methodology:** Before each timed sweep (Experiments 4 and 5), `Benchmark.py` runs one untimed warmup pass per implementation. This ensures OS page caches are warm and shared libraries (Arrow, Parquet, numpy) are resident in RAM before any measurements begin, so that reported times reflect algorithmic performance rather than cold-start I/O overhead. This is standard practice in systems benchmarking.
 
 ---
 
@@ -178,66 +344,88 @@ Run (positional args: `<base> <k> <support> <conf> <lift> <max_ante> <max_cons>`
 
 **Experiments 6, 7, and 8 require a product catalogue** passed via `--catalogue-base`. This can be the same merged parquet directory used for `base` (the file must include a `product_id` column), or a directory with `products/` and `categories/` parquet sub-directories. These experiments are automatically skipped with a clear message if the catalogue is not available. Experiment 7 additionally requires a previously generated Cumulate rules CSV (passed via `--candidate-rules-csv`); it is automatically skipped if that flag is omitted.
 
-### Quick start (paper defaults, Experiments 1–5 only)
-
-```bash
-python Benchmark.py Data/samples/100000 --output-dir results \
-    --skip l0_pair_example rule_candidate_space held_out_recall
-```
-
-### Full example with explicit flags
-
-```bash
-python Benchmark.py Data/samples/100000 --output-dir results \
-    --sweep-k 3 --sweep-support 0.02 \
-    --sweep-tau 0.5 0.6 0.7 --sweep-lambda 1.2 1.5 2.0 \
-    --basic-k 3 --basic-support 0.02 --basic-conf 0.6 --basic-lift 1.5 \
-    --example-k 5 --example-support 0.02 --example-conf 0.6 --example-lift 1.5 \
-    --ksweep-k 1 2 3 4 5 --ksweep-support 0.02 \
-    --ssweep-support 0.05 0.03 0.02 0.01 --ssweep-k 3 \
-    --repeats 3
-```
-
 ### Run a single experiment
 
 ```bash
 # Experiment 1 — Sensitivity sweep (Table 8)
-python Benchmark.py Data/samples/100000 --output-dir results \
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/sensitivity \
     --skip basic_vs_cumulate example_rules k_sweep support_sweep l0_pair_example rule_candidate_space held_out_recall \
-    --sweep-k 3 --sweep-support 0.02 --sweep-tau 0.5 0.6 0.7 --sweep-lambda 1.2 1.5 2.0
+    --sweep-k 3 --sweep-support 0.02 \
+    --sweep-tau 0.5 0.6 0.7 --sweep-lambda 1.2 1.5 2.0 \
+    --sweep-max-ante-len 3 --sweep-max-cons-len 2 \
+    --repeats 1
 
 # Experiment 2 — Basic vs. Cumulate (Table 9)
-python Benchmark.py Data/samples/100000 --output-dir results \
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/basic_vs_cumulate \
     --skip sensitivity example_rules k_sweep support_sweep l0_pair_example rule_candidate_space held_out_recall \
-    --basic-k 3 --basic-support 0.02 --basic-conf 0.6 --basic-lift 1.5 --repeats 3
+    --basic-k 3 --basic-support 0.02 --basic-conf 0.6 --basic-lift 1.5 \
+    --basic-max-len 5 \
+    --repeats 3
 
 # Experiment 3 — Example rules (Table 3)
-python Benchmark.py Data/samples/100000 --output-dir results \
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/example_rules \
     --skip sensitivity basic_vs_cumulate k_sweep support_sweep l0_pair_example rule_candidate_space held_out_recall \
-    --example-k 5 --example-support 0.02 --example-conf 0.6 --example-lift 1.5
+    --example-k 5 --example-support 0.02 --example-conf 0.6 --example-lift 1.5 \
+    --example-max-ante-len 3 --example-max-cons-len 2 \
+    --repeats 1
 
 # Experiment 4 — K-sweep (Figures 2,3,4,8 + Tables 5,10)
-python Benchmark.py Data/samples/100000 --output-dir results \
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/k_sweep \
     --skip sensitivity basic_vs_cumulate example_rules support_sweep l0_pair_example rule_candidate_space held_out_recall \
-    --ksweep-k 1 2 3 4 5 --ksweep-support 0.02 --ksweep-conf 0.6 --ksweep-lift 1.5
+    --ksweep-k 1 2 3 4 5 \
+    --ksweep-support 0.02 --ksweep-conf 0.6 --ksweep-lift 1.5 \
+    --ksweep-max-ante-len 3 --ksweep-max-cons-len 2 \
+    --repeats 3
 
 # Experiment 5 — Support sweep (Figures 5,6 + Table 11)
-python Benchmark.py Data/samples/100000 --output-dir results \
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/support_sweep \
     --skip sensitivity basic_vs_cumulate example_rules k_sweep l0_pair_example rule_candidate_space held_out_recall \
-    --ssweep-support 0.05 0.03 0.02 0.01 --ssweep-k 3
+    --ssweep-support 0.05 0.03 0.02 0.01 \
+    --ssweep-k 3 --ssweep-conf 0.6 --ssweep-lift 1.5 \
+    --ssweep-max-ante-len 3 --ssweep-max-cons-len 2 \
+    --repeats 3
 
 # Experiment 6 — L0 pair case study
-python Benchmark.py Data/samples/100000 --output-dir results \
-    --skip sensitivity basic_vs_cumulate example_rules k_sweep support_sweep rule_candidate_space held_out_recall
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/l0_pair \
+    --skip sensitivity basic_vs_cumulate example_rules k_sweep support_sweep rule_candidate_space held_out_recall \
+    --catalogue-base Data/wishlist_data.parquet \
+    --catalogue-k-levels 3 \
+    --repeats 1
 
-# Experiment 7 — Candidate-space reduction (requires a prior rules CSV)
-python Benchmark.py Data/samples/100000 --output-dir results \
+# Experiment 7 — Candidate-space reduction
+# Step 1: generate the Cumulate rules CSV (Experiment 3)
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/example_rules \
+    --skip sensitivity basic_vs_cumulate k_sweep support_sweep l0_pair_example held_out_recall \
+    --example-k 5 --example-support 0.02 --example-conf 0.6 --example-lift 1.5 \
+    --example-max-ante-len 3 --example-max-cons-len 2 \
+    --repeats 1
+# Step 2: run the candidate-space reduction experiment
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/rule_candidate_space \
     --skip sensitivity basic_vs_cumulate example_rules k_sweep support_sweep l0_pair_example held_out_recall \
-    --candidate-rules-csv results/basic_vs_cumulate/runs/rules_python.csv
+    --catalogue-base Data/wishlist_data.parquet \
+    --catalogue-k-levels 3 \
+    --candidate-rules-csv results/example_rules/example_rules/rules_k5_s0p02.csv \
+    --repeats 1
 
 # Experiment 8 — Held-out recall (Figure 12)
-python Benchmark.py Data/samples/100000 --output-dir results \
-    --skip sensitivity basic_vs_cumulate example_rules k_sweep support_sweep l0_pair_example rule_candidate_space
+python Benchmark.py Data/samples/100000 \
+    --output-dir results/held_out_recall \
+    --skip sensitivity basic_vs_cumulate example_rules k_sweep support_sweep l0_pair_example rule_candidate_space \
+    --catalogue-base Data/wishlist_data.parquet \
+    --catalogue-k-levels 3 \
+    --held-out-train-frac 0.8 \
+    --held-out-mine-conf 0.50 \
+    --held-out-final-conf 0.60 \
+    --held-out-conf-sweep 0.50,0.55,0.60,0.65,0.70,0.75,0.80 \
+    --repeats 1
 ```
 
 ### All flags
@@ -249,7 +437,7 @@ python Benchmark.py Data/samples/100000 --output-dir results \
 | `base` | *(required)* | Sample directory (columns: `wishlist_id`, `category_name`) |
 | `--output-dir` | *(required)* | Root directory for all benchmark outputs |
 | `--skip` | *(none)* | Experiments to skip (see table above for names) |
-| `--repeats` | `1` | Timed repeats for Basic vs. Cumulate |
+| `--repeats` | `1` | Timed repeats for subprocess-based runs |
 | `--python-exe` | current Python | Interpreter for subprocesses |
 | `--sample` | *(none)* | Restrict to first N wishlists (smoke test) |
 
@@ -294,7 +482,8 @@ python Benchmark.py Data/samples/100000 --output-dir results \
 | `--ksweep-support` | `0.02` | Support |
 | `--ksweep-conf` | `0.6` | Confidence |
 | `--ksweep-lift` | `1.5` | Lift |
-| `--ksweep-max-len` | `5` | Max itemset length |
+| `--ksweep-max-ante-len` | `3` | Max antecedent length (thesis value: 3) |
+| `--ksweep-max-cons-len` | `2` | Max consequent length (thesis value: 2) |
 | `--cpp-exe` | *(auto-detected)* | Path to `apriori_cumulate_cpp` binary; auto-detected at `apriori_cumulate/cpp/apriori_cumulate_cpp`; C++ is included in the sweep only when the binary exists |
 
 **Experiment 5 — Support sweep**
@@ -305,7 +494,8 @@ python Benchmark.py Data/samples/100000 --output-dir results \
 | `--ssweep-k` | `3` | K |
 | `--ssweep-conf` | `0.6` | Confidence |
 | `--ssweep-lift` | `1.5` | Lift |
-| `--ssweep-max-len` | `5` | Max itemset length |
+| `--ssweep-max-ante-len` | `3` | Max antecedent length (thesis value: 3) |
+| `--ssweep-max-cons-len` | `2` | Max consequent length (thesis value: 2) |
 
 **Experiments 6 & 7 — Catalogue settings**
 
@@ -349,15 +539,25 @@ results/
     k_sweep/
         k_sweep_summary.csv           ← Figures 2,3,4,8 + Tables 5,10
         figures/
+            thesis_incremental_k.png          ← Figure 2
+            final_rules_cumulate_vs_mlxtend_by_k.png  ← Figure 3
+            runtime_by_k_level_python_cpp.png ← Figure 4
+            rule_reduction_funnel.png         ← Figure 7
+            thesis_redundancy_stacked.png     ← Figure 8
+            phase_breakdown_baseline.png      ← Figure 9
         runs/
     support_sweep/
         support_sweep_summary.csv     ← Figures 5,6 + Table 11
         figures/
+            python_support_sensitivity.png    ← Figure 5
+            thesis_efficiency_scatter.png     ← Figure 6
         runs/
     l0_pair_example/
         l0_pair_example.csv
     rule_candidate_space/
         summary.csv
     held_out_recall/
-        summary.csv
+        recall_reduction_tradeoff.csv     ← Figure 12 data (conf sweep)
+        recall_reduction_tradeoff.png     ← Figure 12
+        held_out_generalisation.csv       ← Table: firing rate / coverage / hit rate at final conf
 ```

@@ -1,0 +1,2 @@
+confidence_threshold,n_train_transactions,n_test_transactions,n_rules,n_rules_firing,rules_firing_pct,test_coverage_pct,mean_hit_rate,pooled_hit_rate
+0.6,80000,20000,1171,1171,100.0,59.845,0.6557981083274098,0.6451037604176838

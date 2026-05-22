@@ -50,16 +50,16 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 plt.rcParams.update({
-    "font.size":        12,
-    "axes.titlesize":   14,
-    "axes.labelsize":   13,
-    "xtick.labelsize":  11,
-    "ytick.labelsize":  11,
-    "legend.fontsize":  11,
-    "figure.dpi":       220,
+    "font.size":        10,
+    "axes.titlesize":   11,
+    "axes.labelsize":   10,
+    "xtick.labelsize":  9,
+    "ytick.labelsize":  9,
+    "legend.fontsize":  9,
+    "figure.dpi":       160,
 })
 
-# Okabe-Ito colorblind-safe palette
+# Okabe-Ito colorblind-safe palette (used for Figures 4, 6)
 OI_BLACK           = "#000000"
 OI_ORANGE          = "#E69F00"
 OI_SKY_BLUE        = "#56B4E9"
@@ -68,6 +68,18 @@ OI_YELLOW          = "#F0E442"
 OI_BLUE            = "#0072B2"
 OI_VERMILLION      = "#D55E00"
 OI_REDDISH_PURPLE  = "#CC79A7"
+
+# Notebook-exact palette (matches benchmark_thesis_walkthrough.ipynb exactly)
+COL_PY     = "#56B4E9"   # Python Cumulate (same as OI_SKY_BLUE)
+COL_CPP    = "#009E73"   # C++ Cumulate (same as OI_BLUISH_GREEN)
+COL_MLX    = "#D55E00"   # mlxtend flat (same as OI_VERMILLION)
+COL_RED    = "#E15759"   # score/hierarchy removed
+COL_ORANGE = "#F5A623"   # mirror duplicates removed / mlxtend bars
+COL_PURPLE = "#6A5ACD"   # k=5 bar in Fig 2
+# Per-bar colors for Figure 2 (incremental rule discovery)
+_FIG2_COLORS = ["#4C78A8", "#4CAF50", COL_RED, COL_ORANGE, COL_PURPLE]
+# Bar color for Cumulate in Figure 3 and Figure 8
+COL_CUMULATE_BAR = "#4C9AE8"
 
 # ---------------------------------------------------------------------------
 # Repo layout
@@ -194,7 +206,10 @@ def parse_args() -> argparse.Namespace:
     g4.add_argument("--ksweep-support", type=float, default=0.02, metavar="S")
     g4.add_argument("--ksweep-conf",    type=float, default=0.6,  metavar="C")
     g4.add_argument("--ksweep-lift",    type=float, default=1.5,  metavar="L")
-    g4.add_argument("--ksweep-max-len", type=int,   default=5,    metavar="M")
+    g4.add_argument("--ksweep-max-ante-len", type=int, default=3, metavar="A",
+                    help="Max antecedent length for k-sweep runs (thesis default: 3).")
+    g4.add_argument("--ksweep-max-cons-len", type=int, default=2, metavar="B",
+                    help="Max consequent length for k-sweep runs (thesis default: 2).")
     g4.add_argument(
         "--cpp-exe", default=None, metavar="EXE",
         help="Path to compiled apriori_cumulate_cpp binary. "
@@ -213,7 +228,10 @@ def parse_args() -> argparse.Namespace:
     g5.add_argument("--ssweep-k",       type=int,   default=3,   metavar="K")
     g5.add_argument("--ssweep-conf",    type=float, default=0.6, metavar="C")
     g5.add_argument("--ssweep-lift",    type=float, default=1.5, metavar="L")
-    g5.add_argument("--ssweep-max-len", type=int,   default=5,   metavar="M")
+    g5.add_argument("--ssweep-max-ante-len", type=int, default=3, metavar="A",
+                    help="Max antecedent length for support-sweep runs (thesis default: 3).")
+    g5.add_argument("--ssweep-max-cons-len", type=int, default=2, metavar="B",
+                    help="Max consequent length for support-sweep runs (thesis default: 2).")
 
     # ── Shared catalogue args (experiments 6 & 7) ────────────────────────────
     gc = p.add_argument_group(
@@ -720,15 +738,9 @@ def run_example_rules(args: argparse.Namespace, out_dir: Path) -> None:
 
 def _paper_axes(ax: Any) -> None:
     ax.grid(False)
-    ax.tick_params(direction="in", top=True, right=True, width=1.0)
+    ax.tick_params(direction="in", top=True, right=True, width=0.8)
     for spine in ax.spines.values():
-        spine.set_linewidth(1.0)
-    ax.title.set_fontsize(14)
-    ax.title.set_fontweight("bold")
-    ax.xaxis.label.set_fontsize(13)
-    ax.yaxis.label.set_fontsize(13)
-    for tick in ax.get_xticklabels() + ax.get_yticklabels():
-        tick.set_fontsize(11)
+        spine.set_linewidth(0.8)
 
 
 def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) -> None:
@@ -773,20 +785,17 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         totals = [cumulate_rules[k] for k in sorted_k]
         incremental = [totals[0]] + [totals[i] - totals[i - 1] for i in range(1, len(totals))]
         xpos = list(range(len(sorted_k)))
-        # Each k-level bar gets its own Okabe-Ito color (thesis order: sky-blue, green, vermillion, orange, blue)
-        _k_colors = [OI_SKY_BLUE, OI_BLUISH_GREEN, OI_VERMILLION, OI_ORANGE, OI_BLUE,
-                     OI_REDDISH_PURPLE, OI_YELLOW, OI_BLACK]
-        bar_colors = [_k_colors[i % len(_k_colors)] for i in range(len(sorted_k))]
-        fig, ax = plt.subplots(figsize=(10, 6))
-        bars = ax.bar(xpos, incremental, color=bar_colors)
+        bar_colors = [_FIG2_COLORS[i % len(_FIG2_COLORS)] for i in range(len(sorted_k))]
+        fig, ax = plt.subplots(figsize=(6.2, 4.4))
+        bars = ax.bar(xpos, incremental, color=bar_colors, edgecolor="black", linewidth=0.5)
         ymax = max(v for v in incremental if v > 0) if any(v > 0 for v in incremental) else 1
-        ax.set_ylim(0, ymax * 1.22)
+        ax.set_ylim(0, ymax * 1.35)
         for bar, inc, tot in zip(bars, incremental, totals):
             cx = bar.get_x() + bar.get_width() / 2
-            ax.text(cx, bar.get_height() + ymax * 0.02,
-                    str(int(round(inc))), ha="center", va="bottom", fontsize=11, fontweight="bold")
-            ax.text(cx, bar.get_height() + ymax * 0.10,
-                    f"total={int(round(tot))}", ha="center", va="bottom", fontsize=9, color="0.4")
+            ax.text(cx, bar.get_height() + ymax * 0.035,
+                    str(int(round(inc))), ha="center", va="bottom", fontsize=9, fontweight="bold")
+            ax.text(cx, bar.get_height() + ymax * 0.13,
+                    f"total={int(round(tot))}", ha="center", va="bottom", fontsize=7, color="0.55")
         ax.set_title(
             f"Incremental rule discovery by k-level\n"
             f"(support={args.ksweep_support}, total = cumulative)",
@@ -796,7 +805,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         ax.set_xticks(xpos, [f"k={k}" for k in sorted_k])
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "thesis_incremental_k.png", dpi=220)
+        fig.savefig(figs_dir / "thesis_incremental_k.png", dpi=220, bbox_inches="tight")
         plt.close(fig)
 
     # ── Figure 3: Final rules remaining by k-level (cumulate vs mlxtend) ────
@@ -810,10 +819,10 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         sorted_k = sorted(set(cumulate_rules) | set(mlxtend_rules))
         xpos = list(range(len(sorted_k)))
         width = 0.35
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(6.2, 3.4))
         impl_specs = [
-            (cumulate_rules, "Cumulate (Python/C++)", OI_SKY_BLUE, -width / 2),
-            (mlxtend_rules,  "mlxtend (flat)",        OI_ORANGE,    width / 2),
+            (cumulate_rules, "Cumulate (Python/C++)", COL_CUMULATE_BAR, -width / 2),
+            (mlxtend_rules,  "mlxtend (flat)",        COL_ORANGE,        width / 2),
         ]
         y_max = max(
             (max(cumulate_rules.values()) if cumulate_rules else 0),
@@ -823,14 +832,15 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
             ys = [data.get(k, 0) for k in sorted_k]
             bars = ax.bar(
                 [x + offset for x in xpos], ys, width=width,
-                label=label, color=color, edgecolor="none",
+                label=label, color=color, edgecolor="black", linewidth=0.4,
             )
             for bar, y in zip(bars, ys):
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() + y_max * 0.01,
-                    str(int(round(y))), ha="center", va="bottom", fontsize=10,
+                    bar.get_height() + y_max * 0.015,
+                    str(int(round(y))), ha="center", va="bottom", fontsize=8,
                 )
+        ax.set_ylim(bottom=0, top=y_max * 1.12)
         ax.set_title(
             f"Final rules remaining by k-level\n"
             f"(support={args.ksweep_support}, median across repeats)",
@@ -838,10 +848,10 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         )
         ax.set_ylabel("Final rules (median)")
         ax.set_xticks(xpos, [f"k={k}" for k in sorted_k])
-        ax.legend(frameon=True, framealpha=1.0)
+        ax.legend(loc="upper left", frameon=True)
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "final_rules_cumulate_vs_mlxtend_by_k.png", dpi=220)
+        fig.savefig(figs_dir / "final_rules_cumulate_vs_mlxtend_by_k.png", dpi=220, bbox_inches="tight")
         plt.close(fig)
 
     # ── Figure 4: Median algorithm runtime by k-level ────────────────────────
@@ -863,25 +873,25 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
 
     if runtime_by_impl:
         n = len(present_impls)
-        width = min(0.28, 0.80 / n)
+        width = min(0.25, 0.80 / n)
         start = -width * (n - 1) / 2
         xpos = list(range(len(k_values)))
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(6.2, 3.5))
         for idx, (impl, label, color) in enumerate(present_impls):
             ys = [runtime_by_impl.get(impl, {}).get(k, float("nan")) for k in k_values]
             ax.bar(
                 [x + start + idx * width for x in xpos], ys,
-                width=width, label=label, color=color, edgecolor="none",
+                width=width, label=label, color=color, edgecolor="black", linewidth=0.4,
             )
         ax.set_title("Median algorithm runtime by k-level", fontweight="bold")
         ax.set_xlabel("k-level")
         ax.set_ylabel("Algorithm/core time (sec, log scale)")
         ax.set_yscale("log")
         ax.set_xticks(xpos, [str(k) for k in k_values])
-        ax.legend(frameon=True, framealpha=1.0)
+        ax.legend(loc="upper left", frameon=True)
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "runtime_by_k_level_python_cpp.png", dpi=220)
+        fig.savefig(figs_dir / "runtime_by_k_level_python_cpp.png", dpi=220, bbox_inches="tight")
         plt.close(fig)
 
     # ── Figure 7: Rule reduction funnel (at K=3 or middle K) ─────────────────
@@ -901,9 +911,9 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
                 labels.append(label)
                 vals.append(v)
         if len(vals) >= 2:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            ax.plot(range(len(vals)), vals, color="#9467bd",
-                    marker="o", linewidth=2, markersize=9)
+            fig, ax = plt.subplots(figsize=(6.2, 2.8))
+            ax.plot(range(len(vals)), vals, color="#7B68EE",
+                    marker="o", linewidth=1.1, markersize=3)
             ax.set_title(
                 f"Rule reduction through post-processing\n"
                 f"k={funnel_k}, support={args.ksweep_support:.2f}, "
@@ -915,7 +925,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
             ax.set_xticks(range(len(vals)), labels)
             _paper_axes(ax)
             fig.tight_layout()
-            fig.savefig(figs_dir / "rule_reduction_funnel.png", dpi=220)
+            fig.savefig(figs_dir / "rule_reduction_funnel.png", dpi=220, bbox_inches="tight")
             plt.close(fig)
 
     # ── Figure 8: Stacked redundancy breakdown by k ───────────────────────────
@@ -933,29 +943,31 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
     if stack:
         sorted_k = sorted(stack)
         xpos = list(range(len(sorted_k)))
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(6.2, 3.7))
         finals  = [stack[k]["final"]   for k in sorted_k]
         mirrors = [stack[k]["mirror"]  for k in sorted_k]
         scores  = [stack[k]["sc_hier"] for k in sorted_k]
-        ax.bar(xpos, finals,  color=OI_SKY_BLUE,   edgecolor="none", label="Final rules (kept)")
-        ax.bar(xpos, mirrors, bottom=finals, color=OI_ORANGE, edgecolor="none",
+        ax.bar(xpos, finals,  color=COL_CUMULATE_BAR, edgecolor="black", linewidth=0.4,
+               label="Final rules (kept)")
+        ax.bar(xpos, mirrors, bottom=finals, color=COL_ORANGE, edgecolor="black", linewidth=0.4,
                label="Mirror duplicates removed")
         ax.bar(xpos, scores,  bottom=[f + m for f, m in zip(finals, mirrors)],
-               color=OI_VERMILLION, edgecolor="none", label="Score/hierarchy redundancy removed")
+               color=COL_RED, edgecolor="black", linewidth=0.4,
+               label="Score/hierarchy redundancy removed")
         for x, f in zip(xpos, finals):
-            if f > 0:
+            if f > 100:
                 ax.text(x, f / 2, str(int(round(f))), ha="center", va="center",
-                        color="white", fontsize=12, fontweight="bold")
+                        color="white", fontsize=9, fontweight="bold")
         ax.set_title(
             f"Cumulate rule filtering by k-level\n(support={args.ksweep_support})",
             fontweight="bold",
         )
         ax.set_ylabel("Rule count")
         ax.set_xticks(xpos, [f"k={k}" for k in sorted_k])
-        ax.legend(frameon=True, framealpha=1.0)
+        ax.legend(loc="upper left", frameon=True, fontsize=8)
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "thesis_redundancy_stacked.png", dpi=220)
+        fig.savefig(figs_dir / "thesis_redundancy_stacked.png", dpi=220, bbox_inches="tight")
         plt.close(fig)
 
     # ── Figure 9: Phase breakdown — all k-levels × all implementations ────────
@@ -967,9 +979,8 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         ("build_transactions_seconds",  "transactions"),
         ("build_ancestor_map_seconds",  "ancestor"),
     ]
-    # Okabe-Ito colors matching the thesis: apriori=vermillion(red), post=brown, encoding=orange,
-    # rules=purple, transactions=blue, ancestor=green
-    phase_colors = [OI_VERMILLION, "#8c564b", OI_ORANGE, OI_REDDISH_PURPLE, OI_SKY_BLUE, OI_BLUISH_GREEN]
+    # Phase colors exactly matching benchmark_thesis_walkthrough.ipynb Figure 9
+    phase_colors = [COL_RED, "#8C564B", COL_ORANGE, "#756BB1", COL_PY, "#4CAF50"]
     # Bar order matches thesis: cpp first, then mlx, then py
     impl_short = [
         ("cpp_cumulate",    "cpp"),
@@ -986,21 +997,23 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
             for field, name in phase_specs:
                 phase_vals[name].append(med(field, impl=impl, k=k) or 0.0)
     if bar_labels:
-        fig, ax = plt.subplots(figsize=(14, 7))
-        bottom = [0.0] * len(bar_labels)
+        fig, ax = plt.subplots(figsize=(6.2, 3.52))
+        bottom = np.zeros(len(bar_labels))
         for (field, name), color in zip(phase_specs, phase_colors):
-            vals_p = phase_vals[name]
-            ax.bar(bar_labels, vals_p, bottom=bottom, label=name, color=color)
-            bottom = [b + v for b, v in zip(bottom, vals_p)]
+            vals_p = np.array(phase_vals[name])
+            ax.bar(bar_labels, vals_p, bottom=bottom, label=name, color=color,
+                   edgecolor="black", linewidth=0.2)
+            bottom += vals_p
+        ax.set_ylim(0, bottom.max() * 1.15)
         ax.set_title(
             f"Phase breakdown (support={args.ksweep_support}, confidence={args.ksweep_conf})",
             fontweight="bold",
         )
         ax.set_ylabel("seconds")
-        ax.legend(ncol=3, frameon=True, framealpha=1.0)
+        ax.legend(ncol=3, loc="upper left", bbox_to_anchor=(0, 1), frameon=True, fontsize=7)
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "phase_breakdown_baseline.png", dpi=220)
+        fig.savefig(figs_dir / "phase_breakdown_baseline.png", dpi=220, bbox_inches="tight")
         plt.close(fig)
 
     print(f"  [figures] Saved k-sweep figures to {figs_dir}")
@@ -1046,15 +1059,15 @@ def _make_support_sweep_figures(
     assoc_t  = [med_s("association_rules_seconds",  s=s) for s in supports]
 
     if any(v is not None for v in final_r):
-        fig, ax1 = plt.subplots(figsize=(10, 6))
+        fig, ax1 = plt.subplots(figsize=(6.2, 3.5))
         for ys, label, marker, ls, color in [
-            (final_r, "Final rules", "o", "-",  OI_BLUE),
-            (raw_r,   "Raw rules",   "s", "--", OI_VERMILLION),
+            (final_r, "Final rules", "o", "-",  "#3A8DFF"),
+            (raw_r,   "Raw rules",   "s", "--", COL_RED),
         ]:
             if any(v is not None for v in ys):
                 ax1.plot(xpos, [float("nan") if v is None else v for v in ys],
-                         color=color, marker=marker, linestyle=ls, label=label, linewidth=2,
-                         markersize=8)
+                         color=color, marker=marker, linestyle=ls, label=label, linewidth=1.5,
+                         markersize=4)
         ax1.set_xlabel("Minimum support")
         ax1.set_ylabel("Rules")
         ax1.set_xticks(xpos, [fmt_s(s) for s in supports])
@@ -1063,29 +1076,36 @@ def _make_support_sweep_figures(
         ax2 = ax1.twinx()
         if any(v is not None for v in assoc_t):
             ax2.plot(xpos, [float("nan") if v is None else v for v in assoc_t],
-                     color=OI_BLUISH_GREEN, marker="^", linestyle=":", label="Rule generation time",
-                     linewidth=2, markersize=8)
+                     color=COL_CPP, marker="^", linestyle=":", label="Rule generation time",
+                     linewidth=1.2, markersize=4)
         ax2.set_ylabel("Rule generation time (sec)")
-        ax2.yaxis.label.set_fontsize(13)
-        for tick in ax2.get_yticklabels():
-            tick.set_fontsize(11)
 
         lines1, labels1 = ax1.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
-        ax1.legend(lines1 + lines2, labels1 + labels2, frameon=True, framealpha=1.0, loc="upper left")
+        ax1.legend(lines1 + lines2, labels1 + labels2, frameon=True, loc="upper left", fontsize=8)
         ax1.set_title("Python minimum support sensitivity", fontweight="bold")
         fig.tight_layout()
-        fig.savefig(figs_dir / "python_support_sensitivity.png", dpi=220)
+        fig.savefig(figs_dir / "python_support_sensitivity.png", dpi=220, bbox_inches="tight")
         plt.close(fig)
 
     # ── Figure 6: Efficiency scatter (rules found vs algorithm time) ──────────
-    # Combine support-sweep rows with k-sweep rows for all implementations.
+    # Combine support-sweep rows (all implementations) with k-sweep rows.
+    # Thesis caption: "all three implementations across K∈{1..5} and s∈{0.05..0.01}"
     all_rows: List[Dict[str, Any]] = list(good)
     if k_sweep_csv is not None and k_sweep_csv.exists():
         try:
             all_rows.extend(pd.read_csv(k_sweep_csv).to_dict(orient="records"))
         except Exception:
             pass
+
+    # Aggregate repeats: median time per unique (implementation, k_levels, min_support) condition
+    if all_rows:
+        _df = pd.DataFrame(all_rows)
+        _grp = [c for c in ["implementation", "k_levels", "min_support"] if c in _df.columns]
+        _agg: Dict[str, Any] = {"algorithm_core_seconds": "median"}
+        if "final_rules" in _df.columns:
+            _agg["final_rules"] = "first"
+        all_rows = _df.groupby(_grp, as_index=False).agg(_agg).to_dict(orient="records")
 
     impl_styles: Dict[str, Dict[str, Any]] = {
         "cpp_cumulate":    {"color": OI_BLUISH_GREEN, "marker": "o", "label": "C++ Cumulate"},
@@ -1106,27 +1126,30 @@ def _make_support_sweep_figures(
             scatter[impl][1].append(y)
 
     if scatter:
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(7.0, 4.5))
         # Plot in thesis legend order: C++, Python, mlxtend
         for impl in ["cpp_cumulate", "python_cumulate", "mlxtend_flat"]:
             if impl not in scatter:
                 continue
             xs, ys = scatter[impl]
             style = impl_styles[impl]
-            ax.scatter(xs, ys, color=style["color"], marker=style["marker"],
-                       label=style["label"], s=80, zorder=3)
+            marker_size = 58 if style["marker"] == "^" else 52
+            ax.scatter(xs, ys, c=style["color"], marker=style["marker"],
+                       label=style["label"], s=marker_size,
+                       edgecolor="black", linewidth=0.45, zorder=3)
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.set_xlabel("Apriori core time (s, log scale)")
+        ax.set_xlabel("Algorithm/core time (s, log scale)")
         ax.set_ylabel("Final rules found (log scale)")
         ax.set_title(
-            "Efficiency: rules found vs algorithm time\n(all k-levels and support values)",
+            f"Efficiency: rules found vs algorithm time\n(K-sweep, support={args.ksweep_support})",
             fontweight="bold",
         )
-        ax.legend(frameon=True, framealpha=1.0)
+        ax.legend(loc="upper left", frameon=True)
+        ax.grid(False)
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "thesis_efficiency_scatter.png", dpi=220)
+        fig.savefig(figs_dir / "thesis_efficiency_scatter.png", dpi=220, bbox_inches="tight")
         plt.close(fig)
 
     print(f"  [figures] Saved support-sweep figures to {figs_dir}")
@@ -1147,17 +1170,62 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
 
     _cpp_exe_path = Path(getattr(args, "cpp_exe", None) or
                          REPO_ROOT / "apriori_cumulate" / "cpp" / "apriori_cumulate_cpp")
+    _ksweep_max_len = args.ksweep_max_ante_len + args.ksweep_max_cons_len
     implementations = [
         ("python_cumulate", str(CUMULATE_PIPELINE), [
-            "--max-ante-len", str(args.ksweep_max_len),
-            "--max-cons-len", str(args.ksweep_max_len),
+            "--max-ante-len", str(args.ksweep_max_ante_len),
+            "--max-cons-len", str(args.ksweep_max_cons_len),
+            "--max-len",      str(_ksweep_max_len),
         ]),
         ("mlxtend_flat", str(MLX_FLAT_PIPELINE), [
-            "--max-len", str(args.ksweep_max_len),
+            "--max-len", str(_ksweep_max_len),
         ]),
     ]
     if _cpp_exe_path.exists():
         implementations.append(("cpp_cumulate", str(_cpp_exe_path), []))
+
+    # ── Warmup pass ──────────────────────────────────────────────────────────
+    # Run each implementation once before timing begins so that OS page caches
+    # are warm and shared libraries (Arrow, Parquet, numpy) are resident in RAM.
+    # Results are discarded; only the subsequent timed runs are recorded.
+    # This is standard practice in systems benchmarking — see paper §methodology.
+    warmup_k   = args.ksweep_k[len(args.ksweep_k) // 2]   # middle K value
+    warmup_dir = out_dir / "_warmup"
+    print(f"  [warmup] Untimed pass per implementation at K={warmup_k} "
+          f"(warms OS cache + shared libs) …")
+    for impl, script, extra_args in implementations:
+        wdir = warmup_dir / impl
+        wdir.mkdir(parents=True, exist_ok=True)
+        if impl == "mlxtend_flat":
+            wcmd = [
+                args.python_exe, script, args.mining_base,
+                "--min-support", str(args.ksweep_support),
+                "--min-conf",    str(args.ksweep_conf),
+                "--min-lift",    str(args.ksweep_lift),
+                "--output",      str(wdir / "rules.csv"),
+            ] + extra_args
+        elif impl == "cpp_cumulate":
+            wcmd = [
+                script, args.mining_base,
+                str(warmup_k),
+                str(args.ksweep_support),
+                str(args.ksweep_conf),
+                str(args.ksweep_lift),
+                str(args.ksweep_max_ante_len),
+                str(args.ksweep_max_cons_len),
+                str(wdir / "rules.csv"),
+            ]
+        else:
+            wcmd = [
+                args.python_exe, script, args.mining_base,
+                "--k-levels",    str(warmup_k),
+                "--min-support", str(args.ksweep_support),
+                "--min-conf",    str(args.ksweep_conf),
+                "--min-lift",    str(args.ksweep_lift),
+                "--output",      str(wdir / "rules.csv"),
+            ] + extra_args
+        run_subprocess(wcmd, wdir)   # result discarded
+    print("  [warmup] Done. Starting timed runs.\n")
 
     rows: List[Dict[str, Any]] = []
     for k in args.ksweep_k:
@@ -1184,8 +1252,8 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                         str(args.ksweep_support),
                         str(args.ksweep_conf),
                         str(args.ksweep_lift),
-                        str(args.ksweep_max_len),
-                        str(args.ksweep_max_len),
+                        str(args.ksweep_max_ante_len),
+                        str(args.ksweep_max_cons_len),
                         str(rules_file),
                     ]
                 else:
@@ -1236,44 +1304,112 @@ def run_support_sweep(args: argparse.Namespace, out_dir: Path) -> None:
     print(f"{'='*60}\n")
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    # ── Warmup pass ──────────────────────────────────────────────────────────
+    # Untimed run to warm OS page cache and Python/Arrow shared libraries
+    # before any timed support-sweep measurements begin.
+    _warmup_max_len = args.ssweep_max_ante_len + args.ssweep_max_cons_len
+    warmup_dir = out_dir / "_warmup"
+    warmup_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  [warmup] Untimed pass per implementation (K={args.ssweep_k}, s={args.ssweep_support[0]}) …")
+    _w_cpp = Path(getattr(args, "cpp_exe", None) or
+                  REPO_ROOT / "apriori_cumulate" / "cpp" / "apriori_cumulate_cpp")
+    _w_s = args.ssweep_support[0]
+    for _wcmd in [
+        [args.python_exe, str(CUMULATE_PIPELINE), args.mining_base,
+         "--k-levels", str(args.ssweep_k), "--min-support", str(_w_s),
+         "--min-conf", str(args.ssweep_conf), "--min-lift", str(args.ssweep_lift),
+         "--max-ante-len", str(args.ssweep_max_ante_len),
+         "--max-cons-len", str(args.ssweep_max_cons_len),
+         "--max-len", str(_warmup_max_len),
+         "--output", str(warmup_dir / "rules_py.csv")],
+        [args.python_exe, str(MLX_FLAT_PIPELINE), args.mining_base,
+         "--min-support", str(_w_s), "--min-conf", str(args.ssweep_conf),
+         "--min-lift", str(args.ssweep_lift),
+         "--max-len", str(_warmup_max_len),
+         "--output", str(warmup_dir / "rules_mlx.csv")],
+    ] + ([
+        [str(_w_cpp), args.mining_base, str(args.ssweep_k), str(_w_s),
+         str(args.ssweep_conf), str(args.ssweep_lift),
+         str(args.ssweep_max_ante_len), str(args.ssweep_max_cons_len),
+         str(warmup_dir / "rules_cpp.csv")]
+    ] if _w_cpp.exists() else []):
+        run_subprocess(_wcmd, warmup_dir)   # result discarded
+    print("  [warmup] Done. Starting timed runs.\n")
+
+    _ssweep_max_len = args.ssweep_max_ante_len + args.ssweep_max_cons_len
+    _cpp_exe_path = Path(getattr(args, "cpp_exe", None) or
+                         REPO_ROOT / "apriori_cumulate" / "cpp" / "apriori_cumulate_cpp")
+    # All three implementations — matches thesis Fig 6 which plots all across s sweep
+    ss_implementations = [
+        ("python_cumulate", str(CUMULATE_PIPELINE), [
+            "--max-ante-len", str(args.ssweep_max_ante_len),
+            "--max-cons-len", str(args.ssweep_max_cons_len),
+            "--max-len",      str(_ssweep_max_len),
+        ]),
+        ("mlxtend_flat", str(MLX_FLAT_PIPELINE), [
+            "--max-len", str(_ssweep_max_len),
+        ]),
+    ]
+    if _cpp_exe_path.exists():
+        ss_implementations.append(("cpp_cumulate", str(_cpp_exe_path), []))
+
     rows: List[Dict[str, Any]] = []
     for s in args.ssweep_support:
         for repeat_id in range(1, args.repeats + 1):
-            s_str     = str(s).replace(".", "p")
-            run_id    = f"python_cumulate_s{s_str}_r{repeat_id}"
-            run_dir   = out_dir / "runs" / run_id
-            rules_file = run_dir / "rules.csv"
+            for impl, script, extra_args in ss_implementations:
+                s_str      = str(s).replace(".", "p")
+                run_id     = f"{impl}_s{s_str}_r{repeat_id}"
+                run_dir    = out_dir / "runs" / run_id
+                rules_file = run_dir / "rules.csv"
 
-            command = [
-                args.python_exe, str(CUMULATE_PIPELINE), args.mining_base,
-                "--k-levels",     str(args.ssweep_k),
-                "--min-support",  str(s),
-                "--min-conf",     str(args.ssweep_conf),
-                "--min-lift",     str(args.ssweep_lift),
-                "--max-ante-len", str(args.ssweep_max_len),
-                "--max-cons-len", str(args.ssweep_max_len),
-                "--output",       str(rules_file),
-            ]
+                if impl == "mlxtend_flat":
+                    command = [
+                        args.python_exe, script, args.mining_base,
+                        "--min-support", str(s),
+                        "--min-conf",    str(args.ssweep_conf),
+                        "--min-lift",    str(args.ssweep_lift),
+                        "--output",      str(rules_file),
+                    ] + extra_args
+                elif impl == "cpp_cumulate":
+                    command = [
+                        script, args.mining_base,
+                        str(args.ssweep_k),
+                        str(s),
+                        str(args.ssweep_conf),
+                        str(args.ssweep_lift),
+                        str(args.ssweep_max_ante_len),
+                        str(args.ssweep_max_cons_len),
+                        str(rules_file),
+                    ]
+                else:
+                    command = [
+                        args.python_exe, script, args.mining_base,
+                        "--k-levels",     str(args.ssweep_k),
+                        "--min-support",  str(s),
+                        "--min-conf",     str(args.ssweep_conf),
+                        "--min-lift",     str(args.ssweep_lift),
+                        "--output",       str(rules_file),
+                    ] + extra_args
 
-            print(f"  python_cumulate  s={s}  repeat={repeat_id} …", end=" ", flush=True)
-            metrics = run_subprocess(command, run_dir)
-            metrics.update({
-                "implementation": "python_cumulate",
-                "k_levels":       args.ssweep_k,
-                "min_support":    s,
-                "repeat_id":      repeat_id,
-                "experiment":     "support_sweep",
-            })
+                print(f"  {impl}  s={s}  repeat={repeat_id} …", end=" ", flush=True)
+                metrics = run_subprocess(command, run_dir)
+                metrics.update({
+                    "implementation": impl,
+                    "k_levels":       args.ssweep_k,
+                    "min_support":    s,
+                    "repeat_id":      repeat_id,
+                    "experiment":     "support_sweep",
+                })
 
-            status = "OK" if metrics["success"] else f"FAILED (rc={metrics['return_code']})"
-            print(
-                f"{status}  wall={metrics['runtime_seconds']:.1f}s  "
-                f"apriori={metrics.get('apriori_seconds') or 0:.3f}s  "
-                f"rules={_rule_count(metrics)}"
-            )
-            if not metrics["success"]:
-                print(f"    stderr → {run_dir / 'stderr.log'}")
-            rows.append(metrics)
+                status = "OK" if metrics["success"] else f"FAILED (rc={metrics['return_code']})"
+                print(
+                    f"{status}  wall={metrics['runtime_seconds']:.1f}s  "
+                    f"apriori={metrics.get('apriori_seconds') or 0:.3f}s  "
+                    f"rules={_rule_count(metrics)}"
+                )
+                if not metrics["success"]:
+                    print(f"    stderr → {run_dir / 'stderr.log'}")
+                rows.append(metrics)
 
     _save_csv(rows, out_dir / "support_sweep_summary.csv")
     _print_sweep_table(rows, group_col="min_support", group_label="support")
@@ -2158,9 +2294,13 @@ def _save_tradeoff_plot(
         marker="o", linewidth=2.2, color="#2f6f6d",
     )
     offsets = {
-        0.50: (0.15, 0.18), 0.55: (0.15, 0.18), 0.60: (0.18, 0.12),
-        0.65: (0.15, 0.16), 0.70: (0.15, 0.12), 0.75: (0.15, 0.12),
-        0.80: (0.15, 0.12),
+        0.50: (0.15, 0.20),
+        0.55: (0.15, 0.20),
+        0.60: (0.20, -0.55),
+        0.65: (0.15, 0.20),
+        0.70: (0.15, 0.80),    # staggered vertically to avoid crowding near y=0
+        0.75: (0.15, 1.40),
+        0.80: (0.15, 2.00),
     }
     for row in tradeoff.itertuples(index=False):
         dx, dy = offsets.get(round(row.confidence_threshold, 2), (0.15, 0.15))
@@ -2173,7 +2313,7 @@ def _save_tradeoff_plot(
     ax.annotate(
         "Current final-rule setup",
         xy=(rec["reduction_pct"], rec["held_out_recall_pct"]),
-        xytext=(rec["reduction_pct"] - 6.5, rec["held_out_recall_pct"] + 3.3),
+        xytext=(rec["reduction_pct"] + 2.5, rec["held_out_recall_pct"] + 2.5),
         arrowprops={"arrowstyle": "->", "color": "#59636e"},
         fontsize=8.5,
     )
@@ -2189,6 +2329,112 @@ def _save_tradeoff_plot(
     fig.tight_layout(pad=1.2)
     fig.savefig(out_path, dpi=300)
     plt.close(fig)
+
+
+def _compute_generalisation_metrics(
+    test_rows: pd.DataFrame,
+    rules: pd.DataFrame,
+    k_levels: int,
+    train_vocab: set,
+) -> Dict[str, Any]:
+    """Compute transaction-level held-out generalisation metrics.
+
+    A rule *fires* on a test transaction when its full antecedent is a subset
+    of the transaction's category tokens.  It *hits* when it fires and the
+    single consequent token is also present in that transaction.
+
+    Unlike the leave-one-out category-recall sweep, this function evaluates
+    every rule against the *full* token set of each test wishlist — the same
+    evaluation described in the thesis held-out table.
+
+    Returns a dict with keys:
+        n_rules               — rules evaluated
+        n_rules_firing        — rules that fire on ≥1 test transaction
+        rules_firing_pct      — percentage of rules that fire
+        test_coverage_pct     — % of test transactions covered by ≥1 rule
+        mean_hit_rate         — mean per-rule hit rate (firing rules only)
+        pooled_hit_rate       — aggregate hits / aggregate firings
+        n_test_transactions   — test transactions evaluated
+    """
+    if rules.empty:
+        return {
+            "n_rules": 0,
+            "n_rules_firing": 0,
+            "rules_firing_pct": 0.0,
+            "test_coverage_pct": 0.0,
+            "mean_hit_rate": 0.0,
+            "pooled_hit_rate": 0.0,
+            "n_test_transactions": 0,
+        }
+
+    # Build full token set per test wishlist (all categories; no leave-one-out)
+    rows = test_rows[["wishlist_id", "category_name"]].drop_duplicates().copy()
+    rows["tokens"] = rows["category_name"].map(
+        lambda path: frozenset(
+            tok for tok in make_level_tokens(path, k_levels)
+            if tok in train_vocab
+        )
+    )
+    test_transactions: List[frozenset] = []
+    for _wid, group in rows.groupby("wishlist_id"):
+        all_toks: frozenset = frozenset().union(*group["tokens"])
+        if all_toks:
+            test_transactions.append(all_toks)
+
+    n_test = len(test_transactions)
+    if n_test == 0:
+        return {
+            "n_rules": len(rules),
+            "n_rules_firing": 0,
+            "rules_firing_pct": 0.0,
+            "test_coverage_pct": 0.0,
+            "mean_hit_rate": 0.0,
+            "pooled_hit_rate": 0.0,
+            "n_test_transactions": 0,
+        }
+
+    # Pre-extract (antecedent frozenset, consequent token) for every rule
+    rule_list: List[tuple] = [
+        (frozenset(row.a_toks), row.b_toks[0])
+        for row in rules.itertuples()
+    ]
+    n_rules = len(rule_list)
+    rule_firings: List[int] = [0] * n_rules
+    rule_hits:    List[int] = [0] * n_rules
+
+    # Single pass over test transactions — O(n_test × n_rules × |antecedent|)
+    n_covered = 0
+    for txn in test_transactions:
+        any_fired = False
+        for i, (ante, cons) in enumerate(rule_list):
+            if ante.issubset(txn):
+                rule_firings[i] += 1
+                any_fired = True
+                if cons in txn:
+                    rule_hits[i] += 1
+        if any_fired:
+            n_covered += 1
+
+    firing_idx = [i for i, f in enumerate(rule_firings) if f > 0]
+    n_rules_firing = len(firing_idx)
+
+    mean_hit_rate = (
+        sum(rule_hits[i] / rule_firings[i] for i in firing_idx) / n_rules_firing
+        if n_rules_firing > 0 else 0.0
+    )
+    total_firings = sum(rule_firings[i] for i in firing_idx)
+    total_hits    = sum(rule_hits[i]    for i in firing_idx)
+    pooled_hit_rate = total_hits / total_firings if total_firings > 0 else 0.0
+
+    return {
+        "n_rules":             n_rules,
+        "n_rules_firing":      n_rules_firing,
+        "rules_firing_pct":    100.0 * n_rules_firing / n_rules,
+        "test_coverage_pct":   100.0 * n_covered / n_test,
+        "mean_hit_rate":       mean_hit_rate,
+        "pooled_hit_rate":     pooled_hit_rate,
+        "n_test_transactions": n_test,
+    }
 
 
 def run_held_out_recall(args: argparse.Namespace, out_dir: Path) -> None:
@@ -2321,6 +2567,43 @@ def run_held_out_recall(args: argparse.Namespace, out_dir: Path) -> None:
         args.held_out_final_conf,
         out_dir / "recall_reduction_tradeoff.png",
     )
+
+    # ── Generalisation metrics at the final confidence threshold ─────────────
+    final_subset = mined_rules[
+        (mined_rules["confidence"] >= args.held_out_final_conf) &
+        (mined_rules["b_toks"].map(len) == 1)
+    ].copy()
+
+    gen = _compute_generalisation_metrics(
+        test_rows=test_rows,
+        rules=final_subset,
+        k_levels=args.catalogue_k_levels,
+        train_vocab=set(train_vocab),
+    )
+
+    gen_row = {
+        "confidence_threshold":  args.held_out_final_conf,
+        "n_train_transactions":  len(train_ids),
+        "n_test_transactions":   gen["n_test_transactions"],
+        "n_rules":               gen["n_rules"],
+        "n_rules_firing":        gen["n_rules_firing"],
+        "rules_firing_pct":      gen["rules_firing_pct"],
+        "test_coverage_pct":     gen["test_coverage_pct"],
+        "mean_hit_rate":         gen["mean_hit_rate"],
+        "pooled_hit_rate":       gen["pooled_hit_rate"],
+    }
+    pd.DataFrame([gen_row]).to_csv(out_dir / "held_out_generalisation.csv", index=False)
+
+    print(
+        f"\n  Generalisation metrics (conf≥{args.held_out_final_conf}):\n"
+        f"    Rules mined on train  : {gen['n_rules']:,}\n"
+        f"    Rules firing on test  : {gen['n_rules_firing']:,} "
+        f"({gen['rules_firing_pct']:.1f}%)\n"
+        f"    Test-wishlist coverage: {gen['test_coverage_pct']:.1f}%\n"
+        f"    Mean per-rule hit rate: {gen['mean_hit_rate']:.3f}\n"
+        f"    Pooled hit rate       : {gen['pooled_hit_rate']:.3f}"
+    )
+
     print(f"\n  Saved outputs to {out_dir}/")
 
 

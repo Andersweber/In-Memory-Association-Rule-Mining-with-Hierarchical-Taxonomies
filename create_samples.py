@@ -121,7 +121,10 @@ def main() -> None:
                 f"{len(all_wishlist_ids):,} available — using all."
             )
 
-        keep_ids  = set(all_wishlist_ids[:size])
+        # Systematic sampling: take every 3rd wishlist across the full dataset,
+        # then cap at `size`. This spreads the sample evenly across the dataset
+        # ordering rather than taking a potentially biased prefix.
+        keep_ids  = set(all_wishlist_ids[::3][:size])
         sample_df = df[df["wishlist_id"].isin(keep_ids)].copy()
         kept_ids  = sample_df["wishlist_id"].nunique()
 

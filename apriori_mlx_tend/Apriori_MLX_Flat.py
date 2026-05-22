@@ -7,9 +7,10 @@ Usage:
 `base` is a directory containing the pre-merged parquet(s)
 (columns: wishlist_id, category_name).
 
-Each wishlist is one transaction; items are category_name strings at the
-chosen taxonomy depth (--level).  The pipeline then runs mlxtend Apriori
-exactly as documented at:
+Each wishlist is one transaction; items are category_name strings projected to
+one non-hierarchical taxonomy level. By default this is the leaf label, which
+matches Cumulate's K=1 tokenisation. The pipeline then runs mlxtend's basic
+TransactionEncoder → apriori → association_rules flow as documented at:
   https://rasbt.github.io/mlxtend/user_guide/frequent_patterns/apriori/
 """
 
@@ -19,7 +20,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import List, Optional, Tuple
 
 import pandas as pd
 from mlxtend.frequent_patterns import apriori, association_rules
@@ -66,12 +67,7 @@ def _parse_optional_int(val) -> Optional[int]:
     return int(val)
 
 
-LevelSpec = Union[int, str]
-
-
-def _level_type(v: str) -> LevelSpec:
-    if v in ("leaf-path", "full-path", "full"):
-        return "leaf_path"
+def _level_type(v: str) -> int:
     if v in ("leaf", "-1"):
         return -1
     try:
@@ -82,16 +78,15 @@ def _level_type(v: str) -> LevelSpec:
 
 def parse_args():
     p = argparse.ArgumentParser(
-        description="Mine association rules from pre-merged wishlist parquet (mlxtend Apriori).",
+        description="Mine flat association rules using mlxtend's basic Apriori workflow.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     p.add_argument("base",
                    help="Directory containing pre-merged parquet(s) "
                         "(columns: wishlist_id, category_name).")
-    p.add_argument("--level", type=_level_type, default=0,
-                   help="Taxonomy depth of category to use as item "
-                        "(0=root, 1=second, ..., leaf/-1=deepest label, "
-                        "leaf-path/full-path=unique full leaf path).")
+    p.add_argument("--level", type=_level_type, default=-1,
+                   help="Single taxonomy level to mine as flat items "
+                        "(0=root, 1=second, ..., leaf/-1=deepest label).")
     p.add_argument("--min-support",  type=float, default=0.01, metavar="S")
     p.add_argument("--min-conf",     type=float, default=0.3,  metavar="C")
     p.add_argument("--min-lift",     type=float, default=1.0,  metavar="L")
@@ -137,25 +132,19 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
 
 # ---------------------------------------------------------------------------
-# Category extraction at a given taxonomy level
+# Build transactions & encode
 # ---------------------------------------------------------------------------
 
-def _extract_level(category_name: str, level: LevelSpec) -> Optional[str]:
-    parts = [p.strip() for p in category_name.split(">") if p.strip()]
+def _extract_level(category_name: str, level: int) -> Optional[str]:
+    parts = [p.strip() for p in str(category_name).split(">") if p.strip()]
     if not parts:
         return None
-    if level == "leaf_path":
-        return " > ".join(parts)
     if level == -1:
         return parts[-1]
     return parts[level] if level < len(parts) else None
 
 
-# ---------------------------------------------------------------------------
-# Build transactions & encode
-# ---------------------------------------------------------------------------
-
-def build_transactions(df: pd.DataFrame, level: LevelSpec) -> Tuple[List[List[str]], int]:
+def build_transactions(df: pd.DataFrame, level: int) -> Tuple[List[List[str]], int]:
     df = df.copy()
     df["item"] = df["category_name"].apply(lambda s: _extract_level(s, level))
     df = df.dropna(subset=["item"])

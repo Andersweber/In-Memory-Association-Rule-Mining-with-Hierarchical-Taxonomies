@@ -30,7 +30,7 @@ Code repository for the paper *"In-Memory Association Rule Mining with Hierarchi
 ├── apriori_mlx_ancestor/
 │   └── Apriori_MLX_Ancestor.py          # mlxtend Basic (ancestor expansion)
 └── apriori_mlx_tend/
-    └── Apriori_MLX_Flat.py              # mlxtend flat baseline
+    └── Apriori_MLX_Flat.py              # basic mlxtend flat baseline
 ```
 
 ---
@@ -204,9 +204,15 @@ python apriori_mlx_ancestor/Apriori_MLX_Ancestor.py Data/samples/100000 \
 
 ```bash
 python apriori_mlx_tend/Apriori_MLX_Flat.py Data/samples/100000 \
+    --level leaf \
     --min-support 0.02 --min-conf 0.6 --min-lift 1.0 \
     --output rules_mlx_flat.csv
 ```
+
+This baseline follows mlxtend's documented `TransactionEncoder -> apriori -> association_rules`
+workflow on a single flat taxonomy level. The default `--level leaf` matches
+Cumulate's `K=1` item representation and remains invariant as Cumulate varies
+`K`.
 
 ### C++ Cumulate
 
@@ -539,18 +545,18 @@ results/
     k_sweep/
         k_sweep_summary.csv           ← Figures 2,3,4,8 + Tables 5,10
         figures/
-            thesis_incremental_k.png          ← Figure 2
-            final_rules_cumulate_vs_mlxtend_by_k.png  ← Figure 3
-            runtime_by_k_level_python_cpp.png ← Figure 4
-            rule_reduction_funnel.png         ← Figure 7
-            thesis_redundancy_stacked.png     ← Figure 8
-            phase_breakdown_baseline.png      ← Figure 9
+            thesis_incremental_k.pdf          ← Figure 2
+            final_rules_cumulate_vs_mlxtend_by_k.pdf  ← Figure 3
+            runtime_by_k_level_python_cpp.pdf ← Figure 4
+            rule_reduction_funnel.pdf         ← Figure 7
+            thesis_redundancy_stacked.pdf     ← Figure 8
+            phase_breakdown_baseline.pdf      ← Figure 9
         runs/
     support_sweep/
         support_sweep_summary.csv     ← Figures 5,6 + Table 11
         figures/
-            python_support_sensitivity.png    ← Figure 5
-            thesis_efficiency_scatter.png     ← Figure 6
+            python_support_sensitivity.pdf    ← Figure 5
+            thesis_efficiency_scatter.pdf     ← Figure 6
         runs/
     l0_pair_example/
         l0_pair_example.csv
@@ -558,6 +564,6 @@ results/
         summary.csv
     held_out_recall/
         recall_reduction_tradeoff.csv     ← Figure 12 data (conf sweep)
-        recall_reduction_tradeoff.png     ← Figure 12
+        recall_reduction_tradeoff.pdf     ← Figure 12
         held_out_generalisation.csv       ← Table: firing rate / coverage / hit rate at final conf
 ```

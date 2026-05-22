@@ -14,6 +14,7 @@ REPEATS="${REPEATS:-3}"
 OUTPUT_DIR="${OUTPUT_DIR:-$PROJECT_DIR/benchmark_results/sample_${SAMPLE_SIZE}}"
 RUN_FULL="${RUN_FULL:-0}"
 REQUIRE_CPP="${REQUIRE_CPP:-1}"
+FULL_BASE="${FULL_BASE:-}"
 
 cd "$PROJECT_DIR"
 mkdir -p slurm_logs benchmark_results
@@ -88,8 +89,12 @@ if [ -x "$CPP_EXE" ]; then
   args+=(--cpp-exe "$CPP_EXE")
 fi
 
+if [ -n "$FULL_BASE" ]; then
+  args+=(--catalogue-base "$FULL_BASE" --full-base "$FULL_BASE")
+fi
+
 if [ "$RUN_FULL" != "1" ]; then
-  args+=(--skip l0_pair_example rule_candidate_space held_out_recall)
+  args+=(--skip l0_pair_example rule_candidate_space held_out_recall full_dataset)
 fi
 
 python Benchmark.py "${args[@]}"

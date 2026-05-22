@@ -50,13 +50,15 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 plt.rcParams.update({
-    "font.size":        10,
-    "axes.titlesize":   11,
-    "axes.labelsize":   10,
-    "xtick.labelsize":  9,
-    "ytick.labelsize":  9,
-    "legend.fontsize":  9,
+    "font.size":        12,
+    "axes.titlesize":   12,
+    "axes.labelsize":   12,
+    "xtick.labelsize":  11,
+    "ytick.labelsize":  11,
+    "legend.fontsize":  11,
     "figure.dpi":       160,
+    "pdf.fonttype":     42,
+    "ps.fonttype":      42,
 })
 
 # Okabe-Ito colorblind-safe palette (used for Figures 4, 6)
@@ -140,10 +142,10 @@ def parse_args() -> argparse.Namespace:
             "sensitivity", "basic_vs_cumulate", "example_rules",
             "k_sweep", "support_sweep",
             "l0_pair_example", "rule_candidate_space",
-            "held_out_recall",
+            "held_out_recall", "full_dataset",
         ],
         default=[],
-        help="Experiments to skip. By default all eight run.",
+        help="Experiments to skip. By default all experiments run.",
     )
     p.add_argument(
         "--repeats", type=int, default=1,
@@ -298,6 +300,19 @@ def parse_args() -> argparse.Namespace:
         metavar="LIST",
         help="Comma-separated confidence thresholds for the recall-reduction curve.",
     )
+
+    g9 = p.add_argument_group("Experiment 9 — Full-dataset scalability")
+    g9.add_argument(
+        "--full-base", default=None, metavar="DIR",
+        help="Full cleaned wishlist parquet file/directory for scalability. "
+             "Defaults to --catalogue-base when supplied.",
+    )
+    g9.add_argument("--full-k",       type=int,   default=3,    metavar="K")
+    g9.add_argument("--full-support", type=float, default=0.02, metavar="S")
+    g9.add_argument("--full-conf",    type=float, default=0.60, metavar="C")
+    g9.add_argument("--full-lift",    type=float, default=1.5,  metavar="L")
+    g9.add_argument("--full-max-ante-len", type=int, default=3, metavar="A")
+    g9.add_argument("--full-max-cons-len", type=int, default=2, metavar="B")
 
     return p.parse_args()
 
@@ -743,6 +758,17 @@ def _paper_axes(ax: Any) -> None:
         spine.set_linewidth(0.8)
 
 
+def _figure_pdf_path(output_path: Path) -> Path:
+    """Benchmark figures are thesis-ready vector PDFs, regardless of legacy suffixes."""
+    return output_path.with_suffix(".pdf")
+
+
+def _save_figure_pdf(fig: Any, output_path: Path, **savefig_kwargs: Any) -> Path:
+    pdf_path = _figure_pdf_path(output_path)
+    fig.savefig(pdf_path, format="pdf", bbox_inches="tight", **savefig_kwargs)
+    return pdf_path
+
+
 def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) -> None:
     """Generate thesis figures from k-sweep row data (Figures 2, 3, 4, 7, 8, 9)."""
     from statistics import median as _median
@@ -793,24 +819,19 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         for bar, inc, tot in zip(bars, incremental, totals):
             cx = bar.get_x() + bar.get_width() / 2
             ax.text(cx, bar.get_height() + ymax * 0.035,
-                    str(int(round(inc))), ha="center", va="bottom", fontsize=9, fontweight="bold")
+                    str(int(round(inc))), ha="center", va="bottom", fontsize=11, fontweight="bold")
             ax.text(cx, bar.get_height() + ymax * 0.13,
-                    f"total={int(round(tot))}", ha="center", va="bottom", fontsize=7, color="0.55")
-        ax.set_title(
-            f"Incremental rule discovery by k-level\n"
-            f"(support={args.ksweep_support}, total = cumulative)",
-            fontweight="bold",
-        )
+                    f"total={int(round(tot))}", ha="center", va="bottom", fontsize=9, color="0.55")
         ax.set_ylabel("New rules added at this k-level")
         ax.set_xticks(xpos, [f"k={k}" for k in sorted_k])
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "thesis_incremental_k.png", dpi=220, bbox_inches="tight")
+        _save_figure_pdf(fig, figs_dir / "thesis_incremental_k.pdf")
         plt.close(fig)
 
     # ── Figure 3: Final rules remaining by k-level (cumulate vs mlxtend) ────
     mlxtend_impl = "mlxtend_flat"
-    mlxtend_label = "mlxtend (flat, leaf path)"
+    mlxtend_label = "mlxtend (flat)"
 
     mlxtend_rules: Dict[int, float] = {}
     for k in k_values:
@@ -841,27 +862,22 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
                 ax.text(
                     bar.get_x() + bar.get_width() / 2,
                     bar.get_height() + y_max * 0.015,
-                    str(int(round(y))), ha="center", va="bottom", fontsize=8,
+                    str(int(round(y))), ha="center", va="bottom", fontsize=10,
                 )
         ax.set_ylim(bottom=0, top=y_max * 1.12)
-        ax.set_title(
-            f"Final rules remaining by k-level\n"
-            f"(support={args.ksweep_support}, median across repeats)",
-            fontweight="bold",
-        )
         ax.set_ylabel("Final rules (median)")
         ax.set_xticks(xpos, [f"k={k}" for k in sorted_k])
         ax.legend(loc="upper left", frameon=True)
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "final_rules_cumulate_vs_mlxtend_by_k.png", dpi=220, bbox_inches="tight")
+        _save_figure_pdf(fig, figs_dir / "final_rules_cumulate_vs_mlxtend_by_k.pdf")
         plt.close(fig)
 
     # ── Figure 4: Median algorithm runtime by k-level ────────────────────────
     all_impls = [
         ("python_cumulate", "Python Cumulate", OI_SKY_BLUE),
         ("cpp_cumulate",    "C++ Cumulate",    OI_BLUISH_GREEN),
-        ("mlxtend_flat",    "mlxtend (flat, leaf path)", OI_VERMILLION),
+        ("mlxtend_flat",    "mlxtend (flat)", OI_VERMILLION),
     ]
     present_impls = [
         (impl, lbl, col) for impl, lbl, col in all_impls
@@ -879,22 +895,25 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         width = min(0.25, 0.80 / n)
         start = -width * (n - 1) / 2
         xpos = list(range(len(k_values)))
-        fig, ax = plt.subplots(figsize=(6.2, 3.5))
+        fig, ax = plt.subplots(figsize=(7.4, 4.3))
         for idx, (impl, label, color) in enumerate(present_impls):
             ys = [runtime_by_impl.get(impl, {}).get(k, float("nan")) for k in k_values]
             ax.bar(
                 [x + start + idx * width for x in xpos], ys,
                 width=width, label=label, color=color, edgecolor="black", linewidth=0.4,
             )
-        ax.set_title("Median algorithm runtime by k-level", fontweight="bold")
         ax.set_xlabel("k-level")
-        ax.set_ylabel("Algorithm/core time (sec, log scale)")
+        ax.set_ylabel("Core time (s, log scale)", labelpad=8)
         ax.set_yscale("log")
         ax.set_xticks(xpos, [str(k) for k in k_values])
-        ax.legend(loc="upper left", frameon=True)
+        ax.legend(
+            loc="lower center", bbox_to_anchor=(0.5, 1.02),
+            ncol=min(3, n), frameon=True, fontsize=9,
+            columnspacing=0.9, handlelength=1.6,
+        )
         _paper_axes(ax)
-        fig.tight_layout()
-        fig.savefig(figs_dir / "runtime_by_k_level_python_cpp.png", dpi=220, bbox_inches="tight")
+        fig.tight_layout(rect=(0.02, 0.0, 1.0, 0.90))
+        _save_figure_pdf(fig, figs_dir / "runtime_by_k_level_python_cpp.pdf")
         plt.close(fig)
 
     # ── Figure 7: Rule reduction funnel (at K=3 or middle K) ─────────────────
@@ -917,18 +936,12 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
             fig, ax = plt.subplots(figsize=(6.2, 2.8))
             ax.plot(range(len(vals)), vals, color="#7B68EE",
                     marker="o", linewidth=1.1, markersize=3)
-            ax.set_title(
-                f"Rule reduction through post-processing\n"
-                f"k={funnel_k}, support={args.ksweep_support:.2f}, "
-                f"confidence={args.ksweep_conf:.2f}, lift={args.ksweep_lift:.2f}",
-                fontweight="bold",
-            )
             ax.set_xlabel("Stage")
             ax.set_ylabel("Rules")
             ax.set_xticks(range(len(vals)), labels)
             _paper_axes(ax)
             fig.tight_layout()
-            fig.savefig(figs_dir / "rule_reduction_funnel.png", dpi=220, bbox_inches="tight")
+            _save_figure_pdf(fig, figs_dir / "rule_reduction_funnel.pdf")
             plt.close(fig)
 
     # ── Figure 8: Stacked redundancy breakdown by k ───────────────────────────
@@ -960,17 +973,13 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         for x, f in zip(xpos, finals):
             if f > 100:
                 ax.text(x, f / 2, str(int(round(f))), ha="center", va="center",
-                        color="white", fontsize=9, fontweight="bold")
-        ax.set_title(
-            f"Cumulate rule filtering by k-level\n(support={args.ksweep_support})",
-            fontweight="bold",
-        )
+                        color="white", fontsize=11, fontweight="bold")
         ax.set_ylabel("Rule count")
         ax.set_xticks(xpos, [f"k={k}" for k in sorted_k])
-        ax.legend(loc="upper left", frameon=True, fontsize=8)
+        ax.legend(loc="upper left", frameon=True, fontsize=10)
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "thesis_redundancy_stacked.png", dpi=220, bbox_inches="tight")
+        _save_figure_pdf(fig, figs_dir / "thesis_redundancy_stacked.pdf")
         plt.close(fig)
 
     # ── Figure 9: Phase breakdown — all k-levels × all implementations ────────
@@ -1008,15 +1017,11 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
                    edgecolor="black", linewidth=0.2)
             bottom += vals_p
         ax.set_ylim(0, bottom.max() * 1.15)
-        ax.set_title(
-            f"Phase breakdown (support={args.ksweep_support}, confidence={args.ksweep_conf})",
-            fontweight="bold",
-        )
         ax.set_ylabel("seconds")
-        ax.legend(ncol=3, loc="upper left", bbox_to_anchor=(0, 1), frameon=True, fontsize=7)
+        ax.legend(ncol=3, loc="upper left", bbox_to_anchor=(0, 1), frameon=True, fontsize=9)
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "phase_breakdown_baseline.png", dpi=220, bbox_inches="tight")
+        _save_figure_pdf(fig, figs_dir / "phase_breakdown_baseline.pdf")
         plt.close(fig)
 
     print(f"  [figures] Saved k-sweep figures to {figs_dir}")
@@ -1085,10 +1090,9 @@ def _make_support_sweep_figures(
 
         lines1, labels1 = ax1.get_legend_handles_labels()
         lines2, labels2 = ax2.get_legend_handles_labels()
-        ax1.legend(lines1 + lines2, labels1 + labels2, frameon=True, loc="upper left", fontsize=8)
-        ax1.set_title("Python minimum support sensitivity", fontweight="bold")
+        ax1.legend(lines1 + lines2, labels1 + labels2, frameon=True, loc="upper left", fontsize=10)
         fig.tight_layout()
-        fig.savefig(figs_dir / "python_support_sensitivity.png", dpi=220, bbox_inches="tight")
+        _save_figure_pdf(fig, figs_dir / "python_support_sensitivity.pdf")
         plt.close(fig)
 
     # ── Figure 6: Efficiency scatter (rules found vs algorithm time) ──────────
@@ -1145,18 +1149,93 @@ def _make_support_sweep_figures(
         ax.set_yscale("log")
         ax.set_xlabel("Algorithm/core time (s, log scale)")
         ax.set_ylabel("Final rules found (log scale)")
-        ax.set_title(
-            f"Efficiency: rules found vs algorithm time\n(K-sweep, support={args.ksweep_support})",
-            fontweight="bold",
-        )
         ax.legend(loc="upper left", frameon=True)
         ax.grid(False)
         _paper_axes(ax)
         fig.tight_layout()
-        fig.savefig(figs_dir / "thesis_efficiency_scatter.png", dpi=220, bbox_inches="tight")
+        _save_figure_pdf(fig, figs_dir / "thesis_efficiency_scatter.pdf")
         plt.close(fig)
 
     print(f"  [figures] Saved support-sweep figures to {figs_dir}")
+
+
+# ===========================================================================
+# EXPERIMENT 9 — Full-dataset scalability (Table 7)
+# ===========================================================================
+
+def run_full_dataset_scalability(args: argparse.Namespace, out_dir: Path) -> None:
+    full_base = Path(args.full_base or args.catalogue_base or "")
+    if not str(full_base):
+        print("\n[EXPERIMENT 9 skipped] No --full-base or --catalogue-base supplied.")
+        return
+    if not full_base.exists():
+        print(f"\n[EXPERIMENT 9 skipped] Full dataset not found at {full_base}.")
+        return
+
+    print(f"\n{'='*60}")
+    print("EXPERIMENT 9: Full-dataset scalability  (Table 7)")
+    print(f"  full base : {full_base}")
+    print(f"  K={args.full_k}  s={args.full_support}  "
+          f"conf={args.full_conf}  lift={args.full_lift}")
+    print(f"{'='*60}\n")
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    max_len = args.full_max_ante_len + args.full_max_cons_len
+    cpp_exe = Path(getattr(args, "cpp_exe", None) or
+                   REPO_ROOT / "apriori_cumulate" / "cpp" / "apriori_cumulate_cpp")
+
+    implementations: List[tuple[str, List[str]]] = [
+        ("python_cumulate", [
+            args.python_exe, str(CUMULATE_PIPELINE), str(full_base),
+            "--k-levels", str(args.full_k),
+            "--min-support", str(args.full_support),
+            "--min-conf", str(args.full_conf),
+            "--min-lift", str(args.full_lift),
+            "--max-ante-len", str(args.full_max_ante_len),
+            "--max-cons-len", str(args.full_max_cons_len),
+            "--max-len", str(max_len),
+        ]),
+    ]
+    if cpp_exe.exists():
+        implementations.append(("cpp_cumulate", [
+            str(cpp_exe), str(full_base),
+            str(args.full_k),
+            str(args.full_support),
+            str(args.full_conf),
+            str(args.full_lift),
+            str(args.full_max_ante_len),
+            str(args.full_max_cons_len),
+        ]))
+
+    rows: List[Dict[str, Any]] = []
+    for impl, base_cmd in implementations:
+        run_dir = out_dir / "runs" / impl
+        rules_file = run_dir / "rules.csv"
+        command = base_cmd + [str(rules_file)]
+        print(f"Running {impl} on full dataset …", flush=True)
+        metrics = run_subprocess(command, run_dir)
+        row = {
+            "implementation": impl,
+            "dataset": "full",
+            "k_levels": args.full_k,
+            "min_support": args.full_support,
+            "min_confidence": args.full_conf,
+            "min_lift": args.full_lift,
+            **metrics,
+        }
+        rows.append(row)
+        print(
+            f"  {'OK' if row['success'] else 'FAILED'}  "
+            f"wall={row['runtime_seconds']:.1f}s  "
+            f"core={row.get('algorithm_core_seconds') or 0:.3f}s  "
+            f"rules={_rule_count(row)}"
+        )
+        if not row["success"]:
+            print(f"  stderr → {run_dir / 'stderr.log'}")
+
+    summary = pd.DataFrame(rows)
+    summary.to_csv(out_dir / "scalability_summary.csv", index=False)
+    print(f"\nSaved full-dataset scalability summary to {out_dir / 'scalability_summary.csv'}")
 
 
 # ===========================================================================
@@ -1181,10 +1260,11 @@ def run_k_sweep(args: argparse.Namespace, out_dir: Path) -> None:
             "--max-cons-len", str(args.ksweep_max_cons_len),
             "--max-len",      str(_ksweep_max_len),
         ]),
-        # Flat mlxtend is the unmodified leaf-level baseline. It is independent
-        # of K, so the same full leaf-path command is repeated for each K value.
+        # Flat mlxtend is the basic documented baseline on one non-hierarchical
+        # leaf-label level. This matches Cumulate's K=1 representation and is
+        # independent of K, so the same command is repeated for each K value.
         ("mlxtend_flat", str(MLX_FLAT_PIPELINE), [
-            "--level", "leaf-path",
+            "--level", "leaf",
             "--max-len", str(_ksweep_max_len),
         ]),
     ]
@@ -1331,7 +1411,7 @@ def run_support_sweep(args: argparse.Namespace, out_dir: Path) -> None:
         [args.python_exe, str(MLX_FLAT_PIPELINE), args.mining_base,
          "--min-support", str(_w_s), "--min-conf", str(args.ssweep_conf),
          "--min-lift", str(args.ssweep_lift),
-         "--level", "leaf-path",
+         "--level", "leaf",
          "--max-len", str(_warmup_max_len),
          "--output", str(warmup_dir / "rules_mlx.csv")],
     ] + ([
@@ -1354,7 +1434,7 @@ def run_support_sweep(args: argparse.Namespace, out_dir: Path) -> None:
             "--max-len",      str(_ssweep_max_len),
         ]),
         ("mlxtend_flat", str(MLX_FLAT_PIPELINE), [
-            "--level", "leaf-path",
+            "--level", "leaf",
             "--max-len", str(_ssweep_max_len),
         ]),
     ]
@@ -1573,8 +1653,6 @@ def _save_l0_pair_chart(row: pd.Series, output_path: Path) -> None:
         if cons_label.endswith("Activewear Tops > T-Shirts")
         else cons_label.split(" > ")[-1]
     )
-    fig.suptitle(f"Leaf-level pair case study: {ant_short} -> {cons_short}", y=0.98)
-
     metric_labels = ["Support", "Confidence", "Lift"]
     metric_values = [
         f"{100 * float(row['support']):.1f}%",
@@ -1591,12 +1669,11 @@ def _save_l0_pair_chart(row: pd.Series, output_path: Path) -> None:
     ax1.set_xlim(0, before * 0.06)
     ax1.set_yticks([])
     ax1.set_xlabel("Remaining candidate products")
-    ax1.set_title(f"{after:,} of {before:,} products remain")
-    ax1.text(after * 1.03, 0, f"{reduction:.1f}% fewer", va="center", fontsize=11)
+    ax1.text(after * 1.03, 0, f"{reduction:.1f}% fewer", va="center", fontsize=12)
     ax1.spines[["top", "right", "left"]].set_visible(False)
     ax1.grid(axis="x", color="#d9dee3", linewidth=0.8)
     fig.tight_layout()
-    fig.savefig(output_path, dpi=200)
+    _save_figure_pdf(fig, output_path)
     plt.close(fig)
 
 
@@ -1625,8 +1702,6 @@ def _save_l0_industrial_overview(
         gridspec_kw={"width_ratios": [1.18, 0.82, 1.0]},
     )
     ax0, ax1, ax2 = axes
-    fig.suptitle("From category pair to smaller recommendation candidate set", y=0.98)
-
     minimum = max(1, int(inventory["unique_products"].min()))
     maximum = int(inventory["unique_products"].max())
     bins = np.logspace(np.log10(minimum), np.log10(maximum), 30)
@@ -1637,20 +1712,18 @@ def _save_l0_industrial_overview(
     ax0.text(
         ant_products, ax0.get_ylim()[1] * 0.92,
         f"{ant_short}\n{ant_products:,}",
-        ha="center", va="top", fontsize=9, color="#8a4a27",
+        ha="center", va="top", fontsize=11, color="#8a4a27",
     )
     ax0.text(
         cons_products, ax0.get_ylim()[1] * 0.62,
         f"{cons_short}\n{cons_products:,}",
-        ha="center", va="top", fontsize=9, color="#245452",
+        ha="center", va="top", fontsize=11, color="#245452",
     )
-    ax0.set_title("1. Category inventory")
     ax0.set_xlabel("Unique products per category token (log scale)")
     ax0.set_ylabel("Number of category tokens")
     ax0.spines[["top", "right"]].set_visible(False)
 
     ax1.axis("off")
-    ax1.set_title("2. Pair signal")
     ax1.text(
         0.5, 0.82, f"{ant_short}\n->\n{cons_short}",
         ha="center", va="center", fontsize=15, fontweight="bold", color="#1f2933",
@@ -1663,25 +1736,24 @@ def _save_l0_industrial_overview(
     ]
     for idx, (lbl, val) in enumerate(metric_rows):
         y = 0.45 - idx * 0.12
-        ax1.text(0.02, y, lbl, fontsize=9.5, color="#59636e")
-        ax1.text(0.98, y, val, ha="right", fontsize=10.5, color="#1f2933")
+        ax1.text(0.02, y, lbl, fontsize=11, color="#59636e")
+        ax1.text(0.98, y, val, ha="right", fontsize=12, color="#1f2933")
 
     ax2.barh(["Full catalogue", cons_short], [before, after], color=["#d9e1e4", "#2f6f6d"])
     ax2.set_xlim(0, before * 1.08)
-    ax2.set_title("3. Candidate filter")
     ax2.set_xlabel("Candidate products")
     ax2.spines[["top", "right", "left"]].set_visible(False)
     ax2.grid(axis="x", color="#d9dee3", linewidth=0.8)
     ax2.tick_params(axis="y", length=0)
-    ax2.text(before * 0.99, 0, f"{before:,}", ha="right", va="center", fontsize=10)
-    ax2.text(after + before * 0.025, 1, f"{after:,}", va="center", fontsize=10)
+    ax2.text(before * 0.99, 0, f"{before:,}", ha="right", va="center", fontsize=12)
+    ax2.text(after + before * 0.025, 1, f"{after:,}", va="center", fontsize=12)
     ax2.text(
         0, 1.45, f"{reduction:.1f}% fewer products to score",
         fontsize=12, fontweight="bold", color="#1f2933",
     )
 
-    fig.tight_layout(rect=(0, 0, 1, 0.93))
-    fig.savefig(output_path, dpi=220)
+    fig.tight_layout()
+    _save_figure_pdf(fig, output_path)
     plt.close(fig)
 
 
@@ -1750,8 +1822,8 @@ def run_l0_pair_example(args: argparse.Namespace, out_dir: Path) -> None:
         "search_space_reduction_pct":     reduction,
     })
     row.to_frame().T.to_csv(out_dir / "l0_pair_example.csv", index=False)
-    _save_l0_pair_chart(row, out_dir / "l0_pair_example.png")
-    _save_l0_industrial_overview(row, l0_inventory, out_dir / "industrial_pair_overview.png")
+    _save_l0_pair_chart(row, out_dir / "l0_pair_example.pdf")
+    _save_l0_industrial_overview(row, l0_inventory, out_dir / "industrial_pair_overview.pdf")
 
     print(f"{args.l0pair_antecedent} -> {args.l0pair_consequent}")
     print(f"Support: {support:.4f}")
@@ -1870,17 +1942,42 @@ def _build_candidate_summary(
 
 
 def _save_category_histogram(inventory: pd.DataFrame, output_path: Path) -> None:
-    minimum = max(1, int(inventory["unique_products"].min()))
-    maximum = int(inventory["unique_products"].max())
-    bins = np.logspace(np.log10(minimum), np.log10(maximum), 35)
-    fig, ax = plt.subplots(figsize=(8, 5))
-    ax.hist(inventory["unique_products"], bins=bins, color="#2f6f6d", edgecolor="white")
-    ax.set_xscale("log")
-    ax.set_xlabel("Unique catalogue products in category token (log scale)")
+    sorted_counts = (
+        inventory["unique_products"]
+        .astype(float)
+        .sort_values(ascending=False)
+        .reset_index(drop=True)
+    )
+    minimum = max(1, int(sorted_counts.min()))
+    maximum = int(sorted_counts.max())
+    bins = np.logspace(np.log10(minimum), np.log10(maximum), 32)
+    hist, edges = np.histogram(sorted_counts, bins=bins)
+    nonzero = hist > 0
+    hist = hist[nonzero]
+    left_edges = edges[:-1][nonzero]
+    right_edges = edges[1:][nonzero]
+    order = np.argsort(hist)[::-1]
+    hist = hist[order]
+    left_edges = left_edges[order]
+    right_edges = right_edges[order]
+
+    xpos = np.arange(len(hist))
+    fig, ax = plt.subplots(figsize=(8.6, 4.8))
+    ax.bar(xpos, hist, color="#2f6f6d", edgecolor="white", linewidth=0.8)
+    tick_step = max(1, int(np.ceil(len(hist) / 8)))
+    tick_pos = xpos[::tick_step]
+    tick_labels = [
+        f"{int(round(left_edges[i]))}-{int(round(right_edges[i]))}"
+        for i in tick_pos
+    ]
+    ax.set_xticks(tick_pos, tick_labels, rotation=30, ha="right")
+    ax.set_xlim(-0.6, len(hist) - 0.4)
+    ax.set_xlabel("Unique-products bin (sorted by category-token count)")
     ax.set_ylabel("Number of category tokens")
-    ax.set_title("Catalogue product counts across hierarchy-aware categories")
+    ax.grid(axis="y", color="#d9dee3", linewidth=0.8)
+    ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
-    fig.savefig(output_path, dpi=200)
+    _save_figure_pdf(fig, output_path)
     plt.close(fig)
 
 
@@ -1901,17 +1998,26 @@ def _save_rule_reduction_curve(
     ax.axvline(median, color="#1f2933", linestyle="--", linewidth=1.4)
     ax.axhline(50, color="#9aa6b2", linestyle=":", linewidth=1)
     ax.scatter([median], [50], color="#1f2933", zorder=3)
-    ax.text(median + 0.15, 52, f"Median {median:.1f}%", va="bottom", fontsize=8.5)
-    ax.text(p10 + 0.15, 12, f"90% of rules reduce by at least {p10:.1f}%", fontsize=8.5)
+    ax.annotate(
+        f"Median {median:.1f}%",
+        xy=(median, 50), xytext=(6, 6), textcoords="offset points",
+        fontsize=10, ha="left", va="bottom",
+        bbox={"boxstyle": "round,pad=0.2", "fc": "white", "ec": "none", "alpha": 0.85},
+    )
+    ax.annotate(
+        f"90% of rules reduce by at least {p10:.1f}%",
+        xy=(p10, 10), xytext=(6, 4), textcoords="offset points",
+        fontsize=10, ha="left", va="bottom",
+        bbox={"boxstyle": "round,pad=0.2", "fc": "white", "ec": "none", "alpha": 0.85},
+    )
     ax.set_xlim(max(70, values.min() - 1), min(100, values.max() + 1))
     ax.set_ylim(0, 100)
     ax.set_xlabel("Candidate-space reduction (%)")
     ax.set_ylabel("Share of rules at or below reduction (%)")
-    ax.set_title(title)
     ax.grid(axis="both", color="#d9dee3", linewidth=0.8)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout()
-    fig.savefig(output_path, dpi=200)
+    _save_figure_pdf(fig, output_path)
     plt.close(fig)
 
 
@@ -2076,9 +2182,8 @@ def _save_specific_examples_chart(
     xmax = float(plot_df["consequent_candidate_products"].max()) * 1.38
     ax.set_xlim(0, xmax)
     ax.set_yticks(y, plot_df["short_rule"])
-    ax.tick_params(axis="y", labelsize=10, pad=8, length=0)
+    ax.tick_params(axis="y", labelsize=11, pad=8, length=0)
     ax.set_xlabel("Remaining candidate products after rule")
-    ax.set_title(title)
     ax.spines[["top", "right", "left"]].set_visible(False)
     ax.grid(axis="x", color="#d9dee3", linewidth=0.8)
 
@@ -2086,16 +2191,16 @@ def _save_specific_examples_chart(
         after     = int(row.consequent_candidate_products)
         reduction = float(row.search_space_reduction_pct)
         ax.text(after + xmax * 0.02, idx, f"{after:,} ({reduction:.1f}% fewer)",
-                va="center", fontsize=9)
+                va="center", fontsize=11)
 
     baseline = int(plot_df["catalogue_products_before_rule"].iloc[0])
     fig.text(
         0.99, 0.01,
         f"Baseline categorized catalogue: {baseline:,} products",
-        ha="right", va="bottom", fontsize=9, color="#59636e",
+        ha="right", va="bottom", fontsize=11, color="#59636e",
     )
-    fig.subplots_adjust(left=0.43, right=0.97, top=0.88, bottom=0.14)
-    fig.savefig(output_path, dpi=200)
+    fig.subplots_adjust(left=0.43, right=0.97, top=0.96, bottom=0.14)
+    _save_figure_pdf(fig, output_path)
     plt.close(fig)
 
 
@@ -2146,33 +2251,33 @@ def run_rule_candidate_space(args: argparse.Namespace, out_dir: Path) -> None:
     if not leaf_examples.empty:
         leaf_examples.to_csv(out_dir / "leaf_rule_examples.csv", index=False)
 
-    _save_category_histogram(inventory, out_dir / "category_unique_products_hist.png")
-    _save_category_histogram(inventory, out_dir / "category_inventory_histogram.png")
+    _save_category_histogram(inventory, out_dir / "category_unique_products_hist.pdf")
+    _save_category_histogram(inventory, out_dir / "category_inventory_histogram.pdf")
     _save_rule_reduction_curve(
         benchmark,
-        out_dir / "rule_candidate_space_reduction_hist.png",
+        out_dir / "rule_candidate_space_reduction_hist.pdf",
         title="Rules sharply narrow the downstream candidate space",
     )
     single_consequent = benchmark[benchmark["n_consequent_tokens"] == 1]
     _save_rule_reduction_curve(
         single_consequent,
-        out_dir / "single_consequent_rule_reduction_hist.png",
+        out_dir / "single_consequent_rule_reduction_hist.pdf",
         title="Candidate-space reduction from rule consequents",
     )
     _save_rule_reduction_curve(
         single_consequent,
-        out_dir / "candidate_space_reduction_from_rule_consequents.png",
+        out_dir / "candidate_space_reduction_from_rule_consequents.pdf",
         title="Candidate-space reduction from rule consequents",
     )
     _save_specific_examples_chart(
         specific_examples,
-        out_dir / "specific_rule_examples_before_after.png",
+        out_dir / "specific_rule_examples_before_after.pdf",
         title="Concrete rules reduce the downstream candidate set",
     )
     if not leaf_examples.empty:
         _save_specific_examples_chart(
             leaf_examples,
-            out_dir / "leaf_rule_examples_before_after.png",
+            out_dir / "leaf_rule_examples_before_after.pdf",
             title="Leaf-level rules also narrow the candidate set",
         )
 
@@ -2302,40 +2407,40 @@ def _save_tradeoff_plot(
         marker="o", linewidth=2.2, color="#2f6f6d",
     )
     offsets = {
-        0.50: (0.15, 0.20),
-        0.55: (0.15, 0.20),
-        0.60: (0.20, -0.55),
-        0.65: (0.15, 0.20),
-        0.70: (0.15, 0.80),    # staggered vertically to avoid crowding near y=0
-        0.75: (0.15, 1.40),
-        0.80: (0.15, 2.00),
+        0.50: (4, 4),
+        0.55: (4, 4),
+        0.60: (4, -12),
+        0.65: (4, 4),
+        0.70: (4, 10),
+        0.75: (4, 16),
+        0.80: (4, 22),
     }
     for row in tradeoff.itertuples(index=False):
         dx, dy = offsets.get(round(row.confidence_threshold, 2), (0.15, 0.15))
-        ax.text(
-            row.reduction_pct + dx, row.held_out_recall_pct + dy,
-            f"conf >= {row.confidence_threshold:.2f}", fontsize=8,
+        ax.annotate(
+            f"conf {row.confidence_threshold:.2f}",
+            xy=(row.reduction_pct, row.held_out_recall_pct),
+            xytext=(dx, dy), textcoords="offset points",
+            fontsize=8.5, ha="left", va="center",
+            bbox={"boxstyle": "round,pad=0.18", "fc": "white", "ec": "none", "alpha": 0.82},
         )
     rec = tradeoff.iloc[(tradeoff["confidence_threshold"] - final_conf).abs().argmin()]
     ax.scatter([rec["reduction_pct"]], [rec["held_out_recall_pct"]], s=80, color="#b23a48", zorder=3)
     ax.annotate(
         "Current final-rule setup",
         xy=(rec["reduction_pct"], rec["held_out_recall_pct"]),
-        xytext=(rec["reduction_pct"] + 2.5, rec["held_out_recall_pct"] + 2.5),
+        xytext=(rec["reduction_pct"] + 0.55, rec["held_out_recall_pct"] + 0.55),
         arrowprops={"arrowstyle": "->", "color": "#59636e"},
-        fontsize=8.5,
+        fontsize=9,
+        bbox={"boxstyle": "round,pad=0.2", "fc": "white", "ec": "none", "alpha": 0.85},
     )
     ax.set_xlabel("Mean candidate-space reduction (%)")
     ax.set_ylabel("Held-out category recall (%)")
-    ax.set_title(
-        "Recall-reduction trade-off for rule-based candidate generation",
-        fontsize=13, pad=10,
-    )
-    ax.tick_params(labelsize=10)
+    ax.tick_params(labelsize=11)
     ax.grid(color="#d9dee3", linewidth=0.8)
     ax.spines[["top", "right"]].set_visible(False)
     fig.tight_layout(pad=1.2)
-    fig.savefig(out_path, dpi=300)
+    _save_figure_pdf(fig, out_path)
     plt.close(fig)
 
 
@@ -2573,7 +2678,7 @@ def run_held_out_recall(args: argparse.Namespace, out_dir: Path) -> None:
     _save_tradeoff_plot(
         tradeoff,
         args.held_out_final_conf,
-        out_dir / "recall_reduction_tradeoff.png",
+        out_dir / "recall_reduction_tradeoff.pdf",
     )
 
     # ── Generalisation metrics at the final confidence threshold ─────────────
@@ -2628,7 +2733,7 @@ def main() -> None:
         "sensitivity", "basic_vs_cumulate", "example_rules",
         "k_sweep", "support_sweep",
         "l0_pair_example", "rule_candidate_space",
-        "held_out_recall",
+        "held_out_recall", "full_dataset",
     } - skip
 
     out_root = Path(args.output_dir).resolve()
@@ -2731,6 +2836,12 @@ def main() -> None:
             )
         else:
             run_held_out_recall(args, out_root / "held_out_recall")
+
+    if "full_dataset" in run:
+        full_args = argparse.Namespace(**vars(args))
+        if not full_args.full_base and args.catalogue_base:
+            full_args.full_base = args.catalogue_base
+        run_full_dataset_scalability(full_args, out_root / "full_dataset")
 
     total_elapsed = time.perf_counter() - total_start
     print(f"\n[{now_stamp()}] Benchmark finished in {format_elapsed(total_elapsed)}")

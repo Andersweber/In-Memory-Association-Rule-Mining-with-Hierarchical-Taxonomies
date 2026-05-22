@@ -630,7 +630,7 @@ def run_basic_vs_cumulate(args: argparse.Namespace, out_dir: Path) -> None:
             "implementation": "mlxtend_basic",
             "repeat_id": repeat_id,
             "script": str(MLX_ANCESTOR_PIPELINE),
-            "extra_args": ["--mode", "basic"],
+            "extra_args": ["--mode", "basic", "--k-levels", "1"],
             "rules_filename": "rules_mlxtend.csv",
         })
 

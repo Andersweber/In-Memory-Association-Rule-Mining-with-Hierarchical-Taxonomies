@@ -21,7 +21,8 @@
       "Read(//mnt/c/Users/awchr/OneDrive/Skrivebord/**)",
       "Bash(find / -name \"figures_extracted\" -type d 2>/dev/null | head -5 *)",
       "Bash(scp \"C:/Users/awchr/OneDrive/Dokumenter/GitHub/In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies/Benchmark.py\" hendrix:/home/zrf539/BachelorBenchmark/Benchmark.py)",
-      "Bash(xargs grep -l \"979\\\\|full_dataset\\\\|978\")"
+      "Bash(xargs grep -l \"979\\\\|full_dataset\\\\|978\")",
+      "Bash(python -c \"import zipfile; z=zipfile.ZipFile\\('missing_results.zip'\\); [print\\(f\\) for f in z.namelist\\(\\)]\")"
     ]
   }
 }

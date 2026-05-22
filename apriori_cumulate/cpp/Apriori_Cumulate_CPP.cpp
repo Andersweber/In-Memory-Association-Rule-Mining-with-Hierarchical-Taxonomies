@@ -592,20 +592,25 @@ static std::vector<ScoredRule> dedupe_antimirror(std::vector<ScoredRule> rules) 
 // ── Parquet I/O ───────────────────────────────────────────
 // =========================================================
 
-// Read all .parquet files in a directory and concatenate into one table.
+// Read parquet data from either a single .parquet file or a directory of .parquet files.
 static std::shared_ptr<arrow::Table> read_parquet_dir(const std::string& dir) {
     // Collect .parquet files using std::filesystem (works on Windows and Linux)
     std::vector<std::string> files;
     {
         std::filesystem::path dir_path(dir);
         if (!std::filesystem::exists(dir_path))
-            throw std::runtime_error("Directory not found: " + dir);
-        for (const auto& entry : std::filesystem::directory_iterator(dir_path)) {
-            if (entry.path().extension() != ".parquet") continue;
-            if (entry.path().filename().string().rfind("._", 0) == 0) continue; // skip macOS metadata files
-            files.push_back(entry.path().string());
+            throw std::runtime_error("Path not found: " + dir);
+        if (std::filesystem::is_regular_file(dir_path)) {
+            // Single parquet file supplied directly
+            files.push_back(dir_path.string());
+        } else {
+            for (const auto& entry : std::filesystem::directory_iterator(dir_path)) {
+                if (entry.path().extension() != ".parquet") continue;
+                if (entry.path().filename().string().rfind("._", 0) == 0) continue; // skip macOS metadata files
+                files.push_back(entry.path().string());
+            }
+            std::sort(files.begin(), files.end());
         }
-        std::sort(files.begin(), files.end());
     }
     if (files.empty()) throw std::runtime_error("No parquet files in: " + dir);
 

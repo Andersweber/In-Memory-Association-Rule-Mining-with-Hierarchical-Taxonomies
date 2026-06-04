@@ -108,10 +108,10 @@ ARROW_LIBDIR=$(python -c "import pyarrow; print(pyarrow.get_library_dirs()[0])")
 ln -s $ARROW_LIBDIR/libarrow.so.2400 $ARROW_LIBDIR/libarrow.so
 ln -s $ARROW_LIBDIR/libparquet.so.2400 $ARROW_LIBDIR/libparquet.so
 
-# 3. Compile (gcc/13.2.0 required; c++2a = C++20)
+# 3. Compile (gcc/13.2.0 required)
 module load gcc/13.2.0
 cd apriori_cumulate/cpp
-g++ -O2 -std=c++2a \
+g++ -O2 -std=c++17 \
     -I$ARROW_INCLUDE \
     -L$ARROW_LIBDIR \
     -Wl,-rpath,$ARROW_LIBDIR \
@@ -318,16 +318,16 @@ python Benchmark.py Data/samples/100000 \
 
 | Stage | Count |
 |---|---|
-| Raw rules | 138 |
-| After score+rank (lift ≥ 1.5) | 136 |
-| After family dedupe | 136 |
-| After antimirror dedupe (final) | 128 |
+| Raw rules | 321 |
+| After score+rank (lift ≥ 1.5) | 315 |
+| After family dedupe | 315 |
+| After antimirror dedupe (final) | 293 |
 
-Final rule counts by K-level: K=1 → 0, K=2 → 71, K=3 → 128, K=4 → 490, K=5 → 970.
+Final rule counts by K-level: K=1 → 2, K=2 → 242, K=3 → 293, K=4 → 1,150, K=5 → 2,360.
 
 **Output figures** are written to `results/thesis_repro/k_sweep/figures/` and `results/thesis_repro/support_sweep/figures/`.
 
-> **Note:** Runtime figures (Fig 4) show real wall-clock times from your machine and will differ from the thesis values, which were measured on a 32-core HPC node. Rule counts (Figs 2, 3, 7, 8) are deterministic and should match exactly when using the same data and parameters.
+> **Note:** Runtime figures (Figs 4, 5, 6, 9) show real wall-clock times from your machine and will differ from the thesis values, which were measured on a 32-core HPC node. Rule counts (Figs 2, 3, 7, 8) are deterministic and should match exactly when using the same data and parameters.
 
 > **Benchmarking methodology:** Before each timed sweep (Experiments 4 and 5), `Benchmark.py` runs one untimed warmup pass per implementation. This ensures OS page caches are warm and shared libraries (Arrow, Parquet, numpy) are resident in RAM before any measurements begin, so that reported times reflect algorithmic performance rather than cold-start I/O overhead. This is standard practice in systems benchmarking.
 
@@ -339,21 +339,21 @@ Final rule counts by K-level: K=1 → 0, K=2 → 71, K=3 → 128, K=4 → 490, K
 
 | Experiment | `--skip` name | Paper output |
 |---|---|---|
-| 1: Sensitivity sweep (τ/λ grid) | `sensitivity` | Table 8 |
-| 2: Basic vs. Python Cumulate | `basic_vs_cumulate` | Table 9 |
-| 3: Example rules at K=5, s=0.02 | `example_rules` | Table 3 |
-| 4: K-sweep (K=1..5, all implementations) | `k_sweep` | Figures 2, 3, 4, 8 + Tables 5, 10 |
-| 5: Support sweep (s varies, K=3 fixed) | `support_sweep` | Figures 5, 6 + Table 11 |
+| 1: Sensitivity sweep (τ/λ grid) | `sensitivity` | Table IX |
+| 2: Basic vs. Python Cumulate | `basic_vs_cumulate` | Table X |
+| 3: Example rules at K=5, s=0.02 | `example_rules` | Table III |
+| 4: K-sweep (K=1..5, all implementations) | `k_sweep` | Figures 2, 3, 4, 7, 8, 9 + Tables V, XII |
+| 5: Support sweep (s varies, K=3 fixed) | `support_sweep` | Figures 5, 6 + Tables VI, XIII |
 | 6: L0-to-L0 leaf pair case study | `l0_pair_example` | Industrial illustration |
-| 7: Rule-based candidate-space reduction | `rule_candidate_space` | Reduction stats |
-| 8: Held-out recall evaluation | `held_out_recall` | Figure 12 |
+| 7: Rule-based candidate-space reduction | `rule_candidate_space` | Table XI + Figure 11 |
+| 8: Held-out recall evaluation | `held_out_recall` | Figure 12 + Table XV |
 
 **Experiments 6, 7, and 8 require a product catalogue** passed via `--catalogue-base`. This can be the same merged parquet directory used for `base` (the file must include a `product_id` column), or a directory with `products/` and `categories/` parquet sub-directories. These experiments are automatically skipped with a clear message if the catalogue is not available. Experiment 7 additionally requires a previously generated Cumulate rules CSV (passed via `--candidate-rules-csv`); it is automatically skipped if that flag is omitted.
 
 ### Run a single experiment
 
 ```bash
-# Experiment 1 — Sensitivity sweep (Table 8)
+# Experiment 1 — Sensitivity sweep (Table IX)
 python Benchmark.py Data/samples/100000 \
     --output-dir results/sensitivity \
     --skip basic_vs_cumulate example_rules k_sweep support_sweep l0_pair_example rule_candidate_space held_out_recall \
@@ -362,7 +362,7 @@ python Benchmark.py Data/samples/100000 \
     --sweep-max-ante-len 3 --sweep-max-cons-len 2 \
     --repeats 1
 
-# Experiment 2 — Basic vs. Cumulate (Table 9)
+# Experiment 2 — Basic vs. Cumulate (Table X)
 python Benchmark.py Data/samples/100000 \
     --output-dir results/basic_vs_cumulate \
     --skip sensitivity example_rules k_sweep support_sweep l0_pair_example rule_candidate_space held_out_recall \
@@ -378,7 +378,7 @@ python Benchmark.py Data/samples/100000 \
     --example-max-ante-len 3 --example-max-cons-len 2 \
     --repeats 1
 
-# Experiment 4 — K-sweep (Figures 2,3,4,8 + Tables 5,10)
+# Experiment 4 — K-sweep (Figures 2,3,4,7,8,9 + Tables V,XII)
 python Benchmark.py Data/samples/100000 \
     --output-dir results/k_sweep \
     --skip sensitivity basic_vs_cumulate example_rules support_sweep l0_pair_example rule_candidate_space held_out_recall \
@@ -387,7 +387,7 @@ python Benchmark.py Data/samples/100000 \
     --ksweep-max-ante-len 3 --ksweep-max-cons-len 2 \
     --repeats 3
 
-# Experiment 5 — Support sweep (Figures 5,6 + Table 11)
+# Experiment 5 — Support sweep (Figures 5,6 + Tables VI,XIII)
 python Benchmark.py Data/samples/100000 \
     --output-dir results/support_sweep \
     --skip sensitivity basic_vs_cumulate example_rules k_sweep l0_pair_example rule_candidate_space held_out_recall \

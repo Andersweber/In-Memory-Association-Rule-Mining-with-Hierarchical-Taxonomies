@@ -160,7 +160,7 @@ def apriori_inmem(
     The caller passes a hierarchy-expanded one-hot matrix that is already in
     memory. The matrix is reused across all Apriori passes. Candidate
     generation is hierarchy-aware, and support is counted directly over the
-        in-memory sparse matrix without per-pass matrix rebuilds.
+    in-memory sparse matrix without per-pass matrix rebuilds.
     """
     if min_support <= 0.0:
         raise ValueError(

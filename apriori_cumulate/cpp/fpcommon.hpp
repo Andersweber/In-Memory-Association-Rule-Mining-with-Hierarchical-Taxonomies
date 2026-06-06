@@ -8,14 +8,17 @@
 #include <sstream>
 
 // =========================================================
-// fpcommon.hpp — mirrors fpcommon.py
+// fpcommon.hpp — C++ helpers matching frequent_patterns/fpcommon.py
 // =========================================================
 
 using ItemIdx      = int;
 using AncestorMap  = std::unordered_map<ItemIdx, std::unordered_set<ItemIdx>>;
 using PathMap      = std::unordered_map<ItemIdx, std::string>;
-using BranchLabelMap = std::unordered_map<ItemIdx, std::string>;                       // item_idx  -> branch label string
-using BranchAncestry = std::unordered_map<std::string, std::unordered_set<std::string>>; // short_label -> set of full taxonomy paths
+// item_idx -> branch label string
+using BranchLabelMap = std::unordered_map<ItemIdx, std::string>;
+
+// short_label -> set of full taxonomy paths
+using BranchAncestry = std::unordered_map<std::string, std::unordered_set<std::string>>;
 
 // ---------------------------------------------------------------------------
 // precompute_ancestors
@@ -66,7 +69,6 @@ inline bool h_rule_violates_hierarchy(
 //   Builds a map of short_label -> set of full taxonomy paths.
 //   Input: any collection of full '>' separated category path strings
 //          (e.g. "Health & Beauty > Personal Care > Cosmetics").
-//   Mirrors fpc.build_branch_ancestry() in fpcommon.py.
 // ---------------------------------------------------------------------------
 inline BranchAncestry build_branch_ancestry(const std::vector<std::string>& category_paths) {
     BranchAncestry mapping;
@@ -94,7 +96,6 @@ inline BranchAncestry build_branch_ancestry(const std::vector<std::string>& cate
 //   relationship in the real taxonomy.
 //   Uses a ' > '-terminated prefix check to avoid false positives such as
 //   "Clothing" matching "Clothing Accessories".
-//   Mirrors fpc.h_branches_are_related() in fpcommon.py.
 // ---------------------------------------------------------------------------
 inline bool h_branches_are_related(
     const std::string& branch_a,
@@ -110,7 +111,6 @@ inline bool h_branches_are_related(
         std::string pa_norm = pa + " > ";
         for (const auto& pb : it_b->second) {
             std::string pb_norm = pb + " > ";
-            // pa_norm.startswith(pb_norm) or pb_norm.startswith(pa_norm)
             if (pa_norm.size() >= pb_norm.size() &&
                 pa_norm.compare(0, pb_norm.size(), pb_norm) == 0) return true;
             if (pb_norm.size() >= pa_norm.size() &&
@@ -127,7 +127,6 @@ inline bool h_branches_are_related(
 //   Uses BranchLabelMap (ItemIdx -> branch label) instead of extracting
 //   branch labels from raw token strings, because the C++ pipeline works
 //   entirely with integer column indices rather than string tokens.
-//   Mirrors fpc.h_rule_violates_branch_ancestry() in fpcommon.py.
 // ---------------------------------------------------------------------------
 inline bool h_rule_violates_branch_ancestry(
     const std::vector<ItemIdx>& A,

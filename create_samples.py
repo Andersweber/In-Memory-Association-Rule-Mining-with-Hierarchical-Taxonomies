@@ -17,7 +17,7 @@ Output structure:
         100000/
 
 Each subfolder is a valid parquet directory readable by pd.read_parquet().
-Pass a subfolder path to any pipeline script or to ProductionBenchmark.py.
+Pass a subfolder path to any pipeline script or to Benchmark.py.
 """
 
 from __future__ import annotations

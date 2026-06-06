@@ -61,7 +61,6 @@ inline int compute_support_count(const Matrix& X, const Itemset& itemset) {
 // =========================================================
 // Generate_candidates_H
 //   Hierarchy-aware Apriori join step.
-//
 //   L   : sorted frequent (k-1)-itemsets (each row already sorted ascending)
 //   k   : target candidate size
 // =========================================================
@@ -78,11 +77,13 @@ inline std::vector<Itemset> Generate_candidates_H(
 
     std::set<Itemset> prev_set(L.begin(), L.end());
 
+    // Build set of (k-1)-itemsets for subset-frequency checks.
     auto sub_is_frequent = [&](const Itemset& sub) -> bool {
         return prev_set.count(sub) > 0;
     };
 
     using PrefixKey = std::vector<ItemIdx>;
+    // Group itemsets by prefix so only compatible rows are joined.
     std::map<PrefixKey, std::vector<const Itemset*>> prefix_groups;
 
     if (k > 2) {
@@ -116,7 +117,7 @@ inline std::vector<Itemset> Generate_candidates_H(
                 }
                 
                 // Reject duplicate canonical taxonomy paths. For k>2, also check
-                // the new items against all prefix elements.
+                // new items against all prefix elements.
                 if (path_map) {
                     if (_same_canonical_path(a, b, path_map)) continue;
                     if (k > 2) {

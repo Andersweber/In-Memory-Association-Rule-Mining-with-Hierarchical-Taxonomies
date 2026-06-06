@@ -1,6 +1,6 @@
 #pragma once
 #include "fpcommon.hpp"
-#include "apriori.hpp"   // for FrequentItemset, _same_canonical_path
+#include "apriori.hpp"  
 
 #include <algorithm>
 #include <cmath>
@@ -12,7 +12,7 @@
 #include <vector>
 
 // =========================================================
-// association_rules.hpp — mirrors association_rules.py
+// association_rules.hpp — C++ port of frequent_patterns/association_rules.py
 // =========================================================
 
 // ── Result row ────────────────────────────────────────────────────────────
@@ -37,8 +37,7 @@ struct AssociationRule {
 using FreqMap = std::map<std::vector<ItemIdx>, double>;
 
 // ── _rule_violates_hierarchy ───────────────────────────────────────────────
-// Mirrors _rule_violates_hierarchy(antecedent, consequent) in association_rules.py.
-// Returns true if the rule should be filtered out.
+// Returns true if a rule should be filtered by hierarchy constraints.
 inline bool _rule_violates_hierarchy(
     const std::vector<ItemIdx>& antecedent,
     const std::vector<ItemIdx>& consequent,
@@ -47,22 +46,19 @@ inline bool _rule_violates_hierarchy(
     const BranchLabelMap*       branch_label_map = nullptr,
     const BranchAncestry*       branch_ancestry  = nullptr)
 {
-    // 1. Cross-boundary ancestor–descendant check (antecedent × consequent).
-    //    Mirrors: if fpc.h_rule_violates_hierarchy(antecedent, consequent, ancestors=ancestors)
+    // 1. Cross-boundary ancestor-descendant check.
     if (h_rule_violates_hierarchy(antecedent, consequent, ancestors))
         return true;
 
-    // 2. Same canonical-path check (safety net).
-    //    Mirrors: if path_map.get(c) == pa: return True
+    // 2. Same canonical-path check.
     if (path_map) {
         for (ItemIdx a : antecedent)
             for (ItemIdx c : consequent)
                 if (_same_canonical_path(a, c, path_map)) return true;
     }
 
-    // 3. Consequent-internal ancestor: {X}→{a,b} where a is ancestor of b is
-    //    redundant with {X}→{b} (same confidence).
-    //    Mirrors: if c2 in anc_c1: return True
+    // 3. Consequent-internal ancestor: {X}->{a,b}, where a is an ancestor
+    //    of b, is redundant with {X}->{b} because confidence is unchanged.
     if (ancestors && consequent.size() > 1) {
         for (ItemIdx c1 : consequent) {
             auto it = ancestors->find(c1);
@@ -73,9 +69,8 @@ inline bool _rule_violates_hierarchy(
         }
     }
 
-    // 4. Antecedent-internal ancestor: {a,b}→{X} where a is ancestor of b is
-    //    redundant with {b}→{X} (same confidence).
-    //    Mirrors: if a2 in anc_a1: return True
+    // 4. Antecedent-internal ancestor: {a,b}->{X}, where a is an ancestor
+    //    of b, is redundant with {b}->{X}.
     if (ancestors && antecedent.size() > 1) {
         for (ItemIdx a1 : antecedent) {
             auto it = ancestors->find(a1);
@@ -87,7 +82,6 @@ inline bool _rule_violates_hierarchy(
     }
 
     // 5. Branch-level ancestry check.
-    //    Mirrors: if fpc.h_rule_violates_branch_ancestry(a_tokens, c_tokens, branch_ancestry)
     if (branch_label_map && branch_ancestry) {
         if (h_rule_violates_branch_ancestry(antecedent, consequent,
                                             *branch_label_map, *branch_ancestry))
@@ -98,9 +92,8 @@ inline bool _rule_violates_hierarchy(
 }
 
 // ── _antecedent_sizes ─────────────────────────────────────────────────────
-// Yields valid antecedent sizes r for a k-item itemset, respecting
+// Yields valid antecedent sizes for a k-item itemset, respecting
 // max_ante_len, max_cons_len, and require_single_consequent.
-// Mirrors _antecedent_sizes(m) generator in association_rules.py.
 inline std::vector<int> _antecedent_sizes(
     int m,
     std::optional<int> max_ante_len,
@@ -120,9 +113,8 @@ inline std::vector<int> _antecedent_sizes(
 }
 
 // ── Combinations helper ────────────────────────────────────────────────────
-// Generates all r-combinations of `items`.
-// Mirrors itertools.combinations(k, r=idx) in association_rules.py.
-// callback receives (chosen, rest) where chosen + rest = items.
+// Generates all r-combinations of `items`; callback receives the chosen
+// antecedent and its complement.
 inline void combinations_with_complement(
     const std::vector<ItemIdx>& items,
     int r,
@@ -153,7 +145,7 @@ inline void combinations_with_complement(
 }
 
 // ── association_rules ──────────────────────────────────────────────────────
-// Mirrors association_rules() in association_rules.py.
+// Generate association rules from frequent itemsets.
 inline std::vector<AssociationRule> association_rules(
     const FreqMap&         frequent_items,
     double                 min_confidence            = 0.8,
@@ -173,24 +165,21 @@ inline std::vector<AssociationRule> association_rules(
 
     std::vector<AssociationRule> rules;
 
-    // Mirrors: for k in frequent_items_dict.keys(): if len(k) < 2: continue
     for (const auto& [itemset_vec, sAC] : frequent_items) {
         int m = static_cast<int>(itemset_vec.size());
         if (m < 2) continue;
 
         const double sAC_val = sAC;
 
-        // Mirrors: for idx in _antecedent_sizes(m): for c in combinations(k, r=idx)
         for (int r : _antecedent_sizes(m, max_ante_len, max_cons_len, require_single_consequent)) {
             combinations_with_complement(itemset_vec, r,
                 [&](const std::vector<ItemIdx>& ante, const std::vector<ItemIdx>& cons)
             {
-                // Mirrors: if _rule_violates_hierarchy(antecedent, consequent): continue
                 if (_rule_violates_hierarchy(ante, cons, ancestors, path_map,
                                              branch_label_map, branch_ancestry))
                     return;
 
-                // Look up sA and sC — mirrors: sA = frequent_items_dict[antecedent]
+                // Look up antecedent and consequent supports.
                 auto it_a = frequent_items.find(ante);
                 auto it_c = frequent_items.find(cons);
                 if (it_a == frequent_items.end() || it_c == frequent_items.end())
@@ -204,8 +193,7 @@ inline std::vector<AssociationRule> association_rules(
                 double confidence = sAC_val / sA;
                 if (confidence < min_confidence) return;
 
-                // ── Compute all metrics ────────────────────────────────────
-                // Each mirrors the corresponding lambda in metric_dict.
+                // Compute rule metrics.
                 AssociationRule rule;
                 rule.antecedent          = ante;
                 rule.consequent          = cons;
@@ -216,7 +204,6 @@ inline std::vector<AssociationRule> association_rules(
                 rule.lift                = (sC > 0.0) ? confidence / sC : std::numeric_limits<double>::infinity();
                 rule.leverage            = sAC_val - sA * sC;
 
-                // conviction: (1-sC)/(1-conf); inf when conf==1; 0 when sC==1
                 if (confidence >= 1.0)
                     rule.conviction = std::numeric_limits<double>::infinity();
                 else if (sC >= 1.0)
@@ -250,7 +237,6 @@ inline std::vector<AssociationRule> association_rules(
 }
 
 // ── Build FreqMap from apriori() output ───────────────────────────────────
-// Converts std::vector<FrequentItemset> to the FreqMap used above.
 inline FreqMap build_freq_map(const std::vector<FrequentItemset>& freq_itemsets) {
     FreqMap m;
     for (const auto& fi : freq_itemsets)

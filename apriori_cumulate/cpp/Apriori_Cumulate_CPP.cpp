@@ -46,7 +46,6 @@ static std::string trim(std::string s) {
 
 static const char SEP = '>';
 
-// split_path: split taxonomy path by '>'
 static std::vector<std::string> split_path(const std::string& path) {
     std::vector<std::string> parts;
     std::istringstream ss(path);
@@ -96,7 +95,6 @@ static ParsedToken parse_token(const std::string& tok) {
     return { 0, "__UNK__", tok };
 }
 
-// direct_parent_token_of_leaf
 static std::string direct_parent_token_of_leaf(const std::string& tok) {
     auto pt = parse_token(tok);
     if (pt.level != 0) return "";
@@ -656,9 +654,6 @@ expand_category_path_prefixes(const std::vector<std::string>& category_paths) {
     return std::vector<std::string>(prefixes.begin(), prefixes.end());
 }
 
-// Mirrors notebook join:
-//   wish_events JOIN products ON product_id
-//              JOIN categories ON mongo_product_id = categories.id
 static LoadResult load_parquet(const std::string& base) {
     // Read parquet data with columns wishlist_id and category_name.
     auto tbl = read_parquet_dir(base);

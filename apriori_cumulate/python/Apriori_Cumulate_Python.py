@@ -2,18 +2,17 @@
 Association-rule mining pipeline.
 
 Usage:
-    python pipeline.py <base_path> [options]
+    python Apriori_Cumulate_Python.py <base_path> [options]
 
 In-memory Cumulate-style generalized Apriori
 ─────────────────────────────────────────────
-The literal Cumulate algorithm filters transactions during each database scan,
+The original Cumulate algorithm filters transactions during each database scan,
 which was useful for disk-based settings. In our in-memory setting, hierarchy
 tokens are expanded once, encoded once as a sparse one-hot matrix, and mined
 directly from memory with hierarchy-aware candidate pruning.
 
-Our main algorithm is ``apriori_inmem()`` in ``frequent_patterns/apriori.py``.
-The separate ``cumulate_apriori.py`` file is kept only as a slow
-literal-Cumulate baseline/reference implementation.
+The main mining routine is ``apriori_inmem()`` in
+``frequent_patterns/apriori.py``.
 """
 
 import argparse

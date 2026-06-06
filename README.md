@@ -1,6 +1,6 @@
 # In-Memory Association Rule Mining with Hierarchical Taxonomies
 
-Code repository for the paper *"In-Memory Association Rule Mining with Hierarchical Taxonomies"* (CIKM '26).
+Code repository for the paper *"In-Memory Association Rule Mining with Hierarchical Taxonomies"* (ICDM '26).
 
 > **Paper & code:** [github.com/Andersweber/In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies](https://github.com/Andersweber/In-Memory-Association-Rule-Mining-with-Hierarchical-Taxonomies)
 

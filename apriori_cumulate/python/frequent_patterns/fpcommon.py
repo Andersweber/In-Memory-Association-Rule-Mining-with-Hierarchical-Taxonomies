@@ -7,6 +7,7 @@ from pandas import __version__ as pandas_version
 
 warnings.simplefilter("always", DeprecationWarning)
 
+
 def precompute_ancestors(P, universe):
     """Precompute ancestor sets for all items in `universe`.
 

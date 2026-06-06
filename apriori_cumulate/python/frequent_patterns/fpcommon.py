@@ -7,20 +7,13 @@ from pandas import __version__ as pandas_version
 
 warnings.simplefilter("always", DeprecationWarning)
 
-# =========================================================
-# === CHANGE (Hierarchy) ==================================
-# Utility to precompute ancestor sets from a parent map P.
-#
-# P can be provided as:
-#   - dict(child -> parent) with parent = None at root, OR
-#   - callable P(x) -> parent (or None)
-#
-# Returns:
-#   Anc[x] = set of all ancestors of x (parent, grandparent, ...)
-# =========================================================
-
 def precompute_ancestors(P, universe):
-    """Precompute ancestor sets for all items in `universe`."""
+    """Precompute ancestor sets for all items in `universe`.
+
+    `P` may be either a dict mapping child -> parent, with None at the root,
+    or a callable returning the parent of a given item. The returned mapping
+    contains every parent, grandparent, and higher ancestor for each item.
+    """
     def parent(x):
         if callable(P):
             return P(x)
@@ -35,59 +28,6 @@ def precompute_ancestors(P, universe):
             y = parent(y)
         Anc[x] = seen
     return Anc
-
-
-# =========================================================
-# === CHANGE (Branch-level ancestry check) ================
-# Utility to detect when two token *branch labels* are
-# themselves ancestor/descendant in the real taxonomy.
-#
-# Background:
-#   With K_LEVELS windowing, the L(K-1) node of the window
-#   becomes the "branch" label stored in the token as B:xxx.
-#   These branch labels can themselves form an ancestor chain
-#   in the real taxonomy (e.g. branch "Cosmetics" is a child
-#   of branch "Personal Care" in the Health & Beauty tree).
-#   The existing within-window ancestor check in
-#   h_rule_violates_hierarchy() is blind to this, because it
-#   only compares items within the same K_LEVELS window, not
-#   items whose windows are rooted at related branches.
-#
-# Ambiguity handling:
-#   Real taxonomies contain non-unique short labels — e.g.
-#   "Joggers" exists under Activewear Pants, Maternity Pants,
-#   Baby & Toddler Bottoms, Loungewear Bottoms, and Pants.
-#   At higher K_LEVELS these can appear as branch labels, so
-#   each label is mapped to the FULL SET of taxonomy paths
-#   sharing that short name.  Two labels are treated as
-#   related if ANY pair of their paths is ancestor/descendant.
-#   This is the conservative choice: if any interpretation
-#   could be within-chain, the rule is filtered.
-#
-# build_branch_ancestry(taxonomy_df):
-#   Accepts a taxonomy DataFrame with a 'name' column
-#   containing full '>' separated category paths.
-#   Returns a dict mapping each short label (last segment)
-#   to a frozenset of full path strings — used by
-#   h_branches_are_related() and h_rule_violates_branch_ancestry().
-#
-# h_branches_are_related(branch_a, branch_b, label_to_paths):
-#   Returns True if ANY (path_a, path_b) pair drawn from the
-#   path-sets of branch_a and branch_b has one path as prefix
-#   of the other.  Uses a ' > '-terminated prefix check to
-#   prevent false positives like "Clothing" matching
-#   "Clothing Accessories".  Accepts legacy single-string
-#   mappings too for backwards compatibility.
-#
-# h_rule_violates_branch_ancestry(A, B, label_to_paths):
-#   Returns True if ANY token in antecedent A has a branch
-#   label that is an ancestor/descendant of ANY token in
-#   consequent B.  Token branch label is extracted from the
-#   'B:xxx' segment of the standard token format
-#   'Lx|B:BranchLabel|Full > Category > Path'.
-#   Called from _rule_violates_hierarchy() in
-#   association_rules.py when branch_ancestry is provided.
-# =========================================================
 
 def build_branch_ancestry(taxonomy_df, name_col: str = "name"):
     """Build a label->set-of-full-paths mapping from a taxonomy DataFrame.

@@ -14,7 +14,7 @@
 #include <iterator>
 
 // =========================================================
-// apriori.hpp — mirrors apriori_2.py
+// apriori.hpp — C++ port of frequent_patterns/apriori.py
 // =========================================================
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -23,7 +23,6 @@ using Row       = std::vector<bool>;
 using Matrix    = std::vector<Row>;          // shape: [n_transactions][n_items]
 
 // ── Helper: _same_canonical_path ───────────────────────────────────────────
-// Mirrors _same_canonical_path(a, b, path_map) in apriori_2.py.
 // Returns True if items a and b share the same canonical category-path string.
 inline bool _same_canonical_path(ItemIdx a, ItemIdx b, const PathMap* path_map) {
     if (!path_map) return false;
@@ -78,20 +77,12 @@ inline std::vector<Itemset> Generate_candidates_H(
     if (L.empty()) return {};
     if (max_itemset_len.has_value() && k > *max_itemset_len) return {};
 
-    // Build set of (k-1)-itemsets for subset-frequency checks.
-    // Mirrors: prev_set = {tuple(row) for row in L}
     std::set<Itemset> prev_set(L.begin(), L.end());
 
-    // Subset-frequency check: all (k-1)-subsets must be in prev_set.
-    // Mirrors: def _sub_is_frequent(sub): return tuple(sorted(...)) in prev_set
     auto sub_is_frequent = [&](const Itemset& sub) -> bool {
         return prev_set.count(sub) > 0;
     };
 
-    // ── Prefix-grouped join ────────────────────────────────────────────────
-    // Group L by the (k-2)-element prefix so only rows sharing a prefix are
-    // paired. For k==2 prefix length is 0 → single group.
-    // Mirrors: defaultdict(list) prefix_groups / groups = [L_join]
     using PrefixKey = std::vector<ItemIdx>;
     std::map<PrefixKey, std::vector<const Itemset*>> prefix_groups;
 
@@ -106,30 +97,23 @@ inline std::vector<Itemset> Generate_candidates_H(
             prefix_groups[empty].push_back(&row);
     }
 
-    std::set<Itemset> C_set; // set for deduplication, mirrors sorted(set(C))
+    std::set<Itemset> C_set; 
 
     for (const auto& [pfx, group] : prefix_groups) {
         for (int i = 0; i < (int)group.size(); ++i) {
-            for (int j = i + 1; j < (int)group.size(); ++j) { // j > i: each pair once
+            for (int j = i + 1; j < (int)group.size(); ++j) { 
                 const Itemset& p = *group[i];
                 const Itemset& q = *group[j];
 
                 ItemIdx a = p.back();
                 ItemIdx b = q.back();
 
-                // ── Early abandon: ancestor–descendant check for ANY k ─────
-                // Mirrors: if (b in anc_idx and a in anc_idx[b]) or (a in anc_idx and b in anc_idx[a])
-                // Any itemset with an ancestor–descendant pair produces rules
-                // redundant with its ancestor-free subset — same support and confidence.
                 if (anc_idx) {
                     bool b_anc_a = (anc_idx->count(a) && anc_idx->at(a).count(b));
                     bool a_anc_b = (anc_idx->count(b) && anc_idx->at(b).count(a));
                     if (a_anc_b || b_anc_a) continue;
                 }
 
-                // ── Same-path early abandon ────────────────────────────────
-                // Mirrors: if _same_canonical_path(a, b, path_map): continue
-                // For k>2 also check new items against all prefix elements.
                 if (path_map) {
                     if (_same_canonical_path(a, b, path_map)) continue;
                     if (k > 2) {
@@ -144,8 +128,6 @@ inline std::vector<Itemset> Generate_candidates_H(
                     }
                 }
 
-                // ── Build candidate c = prefix + {a, b} sorted ────────────
-                // Mirrors: c = tuple(prefix + ([a, b] if a < b else [b, a]))
                 Itemset c = pfx;
                 if (a < b) { c.push_back(a); c.push_back(b); }
                 else       { c.push_back(b); c.push_back(a); }
@@ -153,9 +135,6 @@ inline std::vector<Itemset> Generate_candidates_H(
                 if (max_itemset_len.has_value() && (int)c.size() > *max_itemset_len)
                     continue;
 
-                // ── Apriori subset-frequency check ─────────────────────────
-                // Mirrors: if k == 2 or all(_sub_is_frequent(sub) for sub in combinations(c, k-1))
-                // For k==2 singleton subsets are trivially frequent.
                 if (k > 2) {
                     bool all_freq = true;
                     for (int om = 0; om < k; ++om) {
@@ -184,17 +163,6 @@ struct FrequentItemset {
     double  support;
 };
 
-// =========================================================
-// apriori
-//   Mirrors apriori() in apriori_2.py.
-//
-//   X            : boolean transaction matrix [n_transactions][n_items]
-//   min_support  : minimum support threshold in (0, 1]
-//   max_len      : optional cap on itemset length (nullopt = unlimited)
-//   ancestors    : optional hierarchy ancestor map (column-index keyed)
-//   path_map     : optional same-path map (column-index keyed)
-//   verbose      : print progress if true
-// =========================================================
 inline std::vector<FrequentItemset> apriori(
     const Matrix&           X,
     double                  min_support         = 0.5,
@@ -209,9 +177,6 @@ inline std::vector<FrequentItemset> apriori(
     const int n_rows  = static_cast<int>(X.size());
     const int n_items = n_rows > 0 ? static_cast<int>(X[0].size()) : 0;
 
-    // ── Frequent 1-itemsets ────────────────────────────────────────────────
-    // Mirrors: support = _support(X, X.shape[0], is_sparse)
-    //          itemset_dict = {1: ary_col_idx[support >= min_support]}
     std::vector<Itemset>  itemset_dict_1;
     std::vector<double>   support_dict_1;
 
@@ -236,7 +201,6 @@ inline std::vector<FrequentItemset> apriori(
     std::vector<Itemset> current_L = itemset_dict_1;
     int max_itemset = 1;
 
-    // Mirrors: while max_itemset and max_itemset < (max_len or float("inf"))
     while (!current_L.empty() && (!max_len.has_value() || max_itemset < *max_len)) {
         int k = max_itemset + 1;
 

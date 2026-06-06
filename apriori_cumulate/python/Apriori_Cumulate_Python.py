@@ -522,10 +522,8 @@ def main():
         df_encoded = encode_transactions(transactions, all_tokens)
 
     with timed_step("Building ancestor map"):
-        # Expand leaf paths to all intermediate prefixes so that build_branch_ancestry
-        # sees the full taxonomy tree (e.g. "Clothing", "Clothing > Tops", as well as
-        # "Clothing > Tops > T-Shirts"), matching the behaviour of pipeline.py in
-        # Bachelor_final which passes the complete categories table.
+        # Expand leaf paths to all intermediate prefixes so build_branch_ancestry
+        # sees the full taxonomy tree, including both internal nodes and leaf paths.
         _all_taxonomy_paths: set[str] = set()
         for path in df_min["category_name"].dropna().unique():
             parts = [p.strip() for p in str(path).split(">") if p.strip()]

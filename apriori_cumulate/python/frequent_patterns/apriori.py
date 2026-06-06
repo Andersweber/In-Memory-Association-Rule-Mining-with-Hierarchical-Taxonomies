@@ -1,8 +1,17 @@
-# Sebastian Raschka 2014-2026
-# myxtend Machine Learning Library Extensions
-# Based on Author: Sebastian Raschka <sebastianraschka.com>
+# Adapted from mlxtend's apriori.py:
+# https://github.com/rasbt/mlxtend/blob/master/mlxtend/frequent_patterns/apriori.py
 #
-# License: BSD 3 clause
+# Original copyright:
+# Sebastian Raschka 2014-2026
+# mlxtend Machine Learning Library Extensions
+#
+# Original author:
+# Sebastian Raschka <sebastianraschka.com>
+#
+# License: BSD 3-Clause
+#
+# Modified in this repository for in-memory generalized Apriori,
+# hierarchy-aware candidate pruning, and canonical-path pruning.
 import itertools
 from collections import defaultdict
 

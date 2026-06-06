@@ -147,7 +147,7 @@ def parse_args() -> argparse.Namespace:
             "held_out_recall", "full_dataset",
         ],
         default=[],
-        help="Experiments to skip. By default all experiments run.",
+        help="Experiments to skip. By default all nine experiments run.",
     )
     p.add_argument(
         "--repeats", type=int, default=1,

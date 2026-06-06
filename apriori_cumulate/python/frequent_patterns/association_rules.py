@@ -1,12 +1,18 @@
+# Adapted from mlxtend's association_rules.py:
+# https://github.com/rasbt/mlxtend/blob/master/mlxtend/frequent_patterns/association_rules.py
+#
+# Original copyright:
 # Sebastian Raschka 2014-2026
 # mlxtend Machine Learning Library Extensions
 #
-# Function for generating association rules
+# Original authors:
+# Joshua Goerner <https://github.com/JoshuaGoerner>
+# Sebastian Raschka <sebastianraschka.com>
 #
-# Author: Joshua Goerner <https://github.com/JoshuaGoerner>
-#         Sebastian Raschka <sebastianraschka.com>
+# License: BSD 3-Clause
 #
-# License: BSD 3 clause
+# Modified in this repository for hierarchy-aware rule filtering,
+# branch-ancestry checks, and rule-length constraints.
 
 from itertools import combinations
 from typing import Optional

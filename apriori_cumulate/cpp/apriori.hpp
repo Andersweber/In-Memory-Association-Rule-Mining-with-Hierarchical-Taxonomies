@@ -61,7 +61,6 @@ inline int compute_support_count(const Matrix& X, const Itemset& itemset) {
 // =========================================================
 // Generate_candidates_H
 //   Hierarchy-aware Apriori join step.
-//   Mirrors Generate_candidates_H() in apriori_2.py.
 //
 //   L   : sorted frequent (k-1)-itemsets (each row already sorted ascending)
 //   k   : target candidate size
@@ -107,13 +106,17 @@ inline std::vector<Itemset> Generate_candidates_H(
 
                 ItemIdx a = p.back();
                 ItemIdx b = q.back();
-
+                
+                // Reject itemsets with ancestor-descendant pairs because they produce
+                // rules redundant with their ancestor-free subsets.
                 if (anc_idx) {
                     bool b_anc_a = (anc_idx->count(a) && anc_idx->at(a).count(b));
                     bool a_anc_b = (anc_idx->count(b) && anc_idx->at(b).count(a));
                     if (a_anc_b || b_anc_a) continue;
                 }
-
+                
+                // Reject duplicate canonical taxonomy paths. For k>2, also check
+                // the new items against all prefix elements.
                 if (path_map) {
                     if (_same_canonical_path(a, b, path_map)) continue;
                     if (k > 2) {
@@ -156,13 +159,14 @@ inline std::vector<Itemset> Generate_candidates_H(
 }
 
 // =========================================================
-// FrequentItemset — result entry
+// FrequentItemset 
 // =========================================================
 struct FrequentItemset {
     Itemset items;
     double  support;
 };
 
+// In-memory generalized Apriori over a boolean transaction matrix.
 inline std::vector<FrequentItemset> apriori(
     const Matrix&           X,
     double                  min_support         = 0.5,
@@ -235,9 +239,7 @@ inline std::vector<FrequentItemset> apriori(
 }
 
 // =========================================================
-// build_tprime / cumulate_apriori
-//   Literal Cumulate-style Apriori matching
-//   python/frequent_patterns_2/cumulate_apriori.py.
+// Literal Cumulate-style Apriori reference implementation
 // =========================================================
 inline std::unordered_set<ItemIdx> build_tprime(
     const Itemset& raw_transaction,

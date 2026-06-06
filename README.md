@@ -335,7 +335,7 @@ Final rule counts by K-level: K=1 → 2, K=2 → 242, K=3 → 293, K=4 → 1,150
 
 ## Running all benchmark experiments
 
-`Benchmark.py` runs up to eight experiments in one command, covering all reproducible figures and tables in the paper:
+`Benchmark.py` runs up to nine experiments in one command, covering all reproducible figures and tables in the paper:
 
 | Experiment | `--skip` name | Paper output |
 |---|---|---|
@@ -347,6 +347,7 @@ Final rule counts by K-level: K=1 → 2, K=2 → 242, K=3 → 293, K=4 → 1,150
 | 6: L0-to-L0 leaf pair case study | `l0_pair_example` | Industrial illustration |
 | 7: Rule-based candidate-space reduction | `rule_candidate_space` | Table XI + Figure 11 |
 | 8: Held-out recall evaluation | `held_out_recall` | Figure 12 + Table XV |
+| 9: Full-dataset scalability | `full_dataset` | Table VII |
 
 **Experiments 6, 7, and 8 require a product catalogue** passed via `--catalogue-base`. This can be the same merged parquet directory used for `base` (the file must include a `product_id` column), or a directory with `products/` and `categories/` parquet sub-directories. These experiments are automatically skipped with a clear message if the catalogue is not available. Experiment 7 additionally requires a previously generated Cumulate rules CSV (passed via `--candidate-rules-csv`); it is automatically skipped if that flag is omitted.
 
@@ -503,7 +504,7 @@ python Benchmark.py Data/samples/100000 \
 | `--ssweep-max-ante-len` | `3` | Max antecedent length (thesis value: 3) |
 | `--ssweep-max-cons-len` | `2` | Max consequent length (thesis value: 2) |
 
-**Experiments 6 & 7 — Catalogue settings**
+**Experiments 6-8 — Catalogue settings**
 
 | Flag | Default | Description |
 |---|---|---|

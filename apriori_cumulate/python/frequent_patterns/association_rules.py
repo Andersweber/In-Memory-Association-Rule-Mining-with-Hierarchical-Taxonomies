@@ -12,7 +12,7 @@
 # License: BSD 3-Clause
 #
 # Modified in this repository for hierarchy-aware rule filtering,
-# branch-ancestry checks, and rule-length constraints.
+# branch-ancestry checks, and antecedent/consequent length constraints.
 
 from itertools import combinations
 from typing import Optional

@@ -10,8 +10,9 @@ Usage:
 Each wishlist is one transaction. In flat mode, items are category_name
 strings at the chosen taxonomy depth (--level). In basic mode, each category
 path is expanded with its ancestor prefixes before running mlxtend Apriori.
-The pipeline then runs mlxtend Apriori
-exactly as documented at:
+
+The pipeline uses mlxtend's documented TransactionEncoder -> apriori ->
+association_rules workflow:
   https://rasbt.github.io/mlxtend/user_guide/frequent_patterns/apriori/
 """
 

@@ -1,14 +1,8 @@
 // ==========================================================================
-// main_bitset_merged.cpp — C++ pipeline reading pre-merged wishlist_categories_merged.parquet
+// Apriori_Cumulate_CPP.cpp
 //
-// Mirrors (in order):
-//   Cell 1  : Config constants
-//   Cell 3  : Data loading & cleaning (CSV instead of merged DataFrame)
-//   Cell 4  : Tokenization — make_level_tokens, parse_token, build_ancestors_from_tokens
-//   Cell 5  : build_transactions, encode_transactions -> bool matrix
-//   Cell 6  : mine_rules_raw  (apriori + association_rules)
-//   Cell 7  : add_score_and_rank, dedupe_family, dedupe_antimirror, pretty_rules
-//   Cell 8  : Pipeline orchestration + CSV output
+// C++ pipeline for in-memory Cumulate-style association-rule mining over
+// pre-merged parquet data with columns wishlist_id and category_name.
 // ==========================================================================
 
 #include "association_rules.hpp"
@@ -47,7 +41,7 @@ static std::string trim(std::string s) {
 }
 
 // =========================================================
-// ── CELL 4 : Tokenization ─────────────────────────────────
+// Tokenization
 // =========================================================
 
 static const char SEP = '>';
@@ -64,14 +58,13 @@ static std::vector<std::string> split_path(const std::string& path) {
     return parts;
 }
 
-// make_level_tokens: mirrors make_level_tokens(path, k_levels)
-// L0 = leaf (most specific), L(k-1) = top ancestor in window
+// Generate hierarchy tokens where L0 is the leaf and L(k-1) is
+// the top ancestor in the selected window.
 static std::vector<std::string> make_level_tokens(const std::string& path, int k_levels) {
     if (k_levels <= 0) return {};
     auto parts = split_path(path);
     if (parts.empty()) return {};
 
-    // window = last k_levels elements
     int start = (int)parts.size() > k_levels ? (int)parts.size() - k_levels : 0;
     std::vector<std::string> window(parts.begin() + start, parts.end());
     if (window.empty()) return {};
@@ -94,9 +87,8 @@ static std::vector<std::string> make_level_tokens(const std::string& path, int k
 
 struct ParsedToken { int level; std::string branch; std::string label; };
 
-// parse_token: mirrors parse_token(tok)
+// Parse tokens of the form Lx|B:Branch|Full > Category > Path.
 static ParsedToken parse_token(const std::string& tok) {
-    // Pattern: ^L(\d+)\|B:([^|]+)\|(.*)$
     static const std::regex TOKEN_RE(R"(^L(\d+)\|B:([^|]+)\|(.*)$)");
     std::smatch m;
     if (std::regex_match(tok, m, TOKEN_RE))
@@ -118,16 +110,14 @@ static std::string direct_parent_token_of_leaf(const std::string& tok) {
     return "L1|B:" + pt.branch + "|" + parent_lbl;
 }
 
-// build_ancestors_from_tokens: mirrors build_ancestors_from_tokens(tokens)
+// Build token-level ancestors used for hierarchy-aware pruning.
 static std::unordered_map<std::string, std::unordered_set<std::string>>
 build_ancestors_from_tokens(
     const std::vector<std::string>& tokens,
     const BranchAncestry* branch_ancestry = nullptr) {
     std::unordered_set<std::string> tok_set(tokens.begin(), tokens.end());
 
-    // (branch, label) -> set of tokens  (multiple levels can share same branch+label)
     std::map<std::pair<std::string,std::string>, std::unordered_set<std::string>> by_key;
-    // leaf node name -> set of tokens  (for cross-branch lookup)
     std::unordered_map<std::string, std::unordered_set<std::string>> leaf_to_tokens;
 
     for (const auto& t : tokens) {
@@ -176,7 +166,6 @@ build_ancestors_from_tokens(
     }
 
     // 3) Cross-branch top-of-window linking via branch_ancestry.
-    // Mirrors Python's build_ancestors_from_tokens(..., branch_ancestry=...).
     if (branch_ancestry) {
         std::unordered_map<std::string, std::unordered_set<std::string>> branch_to_root_toks;
         for (const auto& t : tokens) {
@@ -253,7 +242,7 @@ build_expansion_ancestors_from_tokens(const std::vector<std::string>& tokens) {
 }
 
 // =========================================================
-// ── CELL 5 : Transaction building & encoding ───────────────
+// Transaction building & encoding
 // =========================================================
 
 struct RawRow { std::string wishlist_id; std::string category_name; };
@@ -339,7 +328,6 @@ static EncodedData encode_cumulate_vocabulary(const std::vector<std::string>& al
 }
 
 static EncodedData encode_transactions(const std::vector<std::vector<std::string>>& transactions) {
-    // Collect unique tokens then sort alphabetically, mirroring the Python encoder.
     std::set<std::string> tok_set;
     for (const auto& tx : transactions)
         for (const auto& tok : tx)
@@ -361,7 +349,6 @@ static EncodedData encode_transactions(const std::vector<std::vector<std::string
 
 static BitsetEncodedData encode_transactions_bitset(
     const std::vector<std::vector<std::string>>& transactions) {
-    // Same vocabulary ordering as encode_transactions() and the Python encoder.
     std::set<std::string> tok_set;
     for (const auto& tx : transactions)
         for (const auto& tok : tx)
@@ -501,7 +488,7 @@ static std::vector<FrequentItemset> apriori_bitset(
 }
 
 // =========================================================
-// ── Scored rule ────────────────────────────────────────────
+// Scored rule
 // =========================================================
 struct ScoredRule {
     std::vector<std::string> a_toks, b_toks;
@@ -521,7 +508,7 @@ static bool scored_rule_better(const ScoredRule& a, const ScoredRule& b) {
 }
 
 // =========================================================
-// ── CELL 7 : Post-processing ──────────────────────────────
+// Post-processing
 // =========================================================
 
 static std::string join_labels(const std::vector<std::string>& toks) {
@@ -542,7 +529,7 @@ static std::string consequent_family_key_one(const std::string& tok) {
     return tok;
 }
 
-// add_score_and_rank: score = confidence * lift; filter; sort desc
+// Filter by support/lift, compute score = confidence * lift, then sort.
 static std::vector<ScoredRule> add_score_and_rank(
     std::vector<ScoredRule> rules, double min_support, double min_lift)
 {
@@ -557,7 +544,7 @@ static std::vector<ScoredRule> add_score_and_rank(
     return out;
 }
 
-// dedupe_family: keep best rule per (antecedent, consequent-family)
+// Keep the best rule per antecedent and consequent family.
 static std::vector<ScoredRule> dedupe_family(std::vector<ScoredRule> rules) {
     std::sort(rules.begin(), rules.end(), scored_rule_better);
     std::set<std::pair<std::vector<std::string>, std::vector<std::string>>> seen;
@@ -572,7 +559,7 @@ static std::vector<ScoredRule> dedupe_family(std::vector<ScoredRule> rules) {
     return out;
 }
 
-// dedupe_antimirror: keep best of A->B vs B->A
+// Keep the best rule among mirror pairs A->B and B->A.
 static std::vector<ScoredRule> dedupe_antimirror(std::vector<ScoredRule> rules) {
     std::sort(rules.begin(), rules.end(), scored_rule_better);
     std::set<std::vector<std::string>> seen;
@@ -594,7 +581,6 @@ static std::vector<ScoredRule> dedupe_antimirror(std::vector<ScoredRule> rules) 
 
 // Read parquet data from either a single .parquet file or a directory of .parquet files.
 static std::shared_ptr<arrow::Table> read_parquet_dir(const std::string& dir) {
-    // Collect .parquet files using std::filesystem (works on Windows and Linux)
     std::vector<std::string> files;
     {
         std::filesystem::path dir_path(dir);
@@ -631,7 +617,6 @@ static std::shared_ptr<arrow::Table> read_parquet_dir(const std::string& dir) {
     return *result;
 }
 
-// Extract a string column (handles both StringArray and LargeStringArray) from a chunked array.
 static std::vector<std::string> col_to_strings(const std::shared_ptr<arrow::ChunkedArray>& col) {
     std::vector<std::string> out;
     out.reserve(col->length());
@@ -651,7 +636,7 @@ static std::vector<std::string> col_to_strings(const std::shared_ptr<arrow::Chun
 
 struct LoadResult {
     std::vector<RawRow>      rows;
-    std::vector<std::string> cat_paths; // unique category path strings for branch ancestry
+    std::vector<std::string> cat_paths; 
 };
 
 static std::vector<std::string>
@@ -675,7 +660,7 @@ expand_category_path_prefixes(const std::vector<std::string>& category_paths) {
 //   wish_events JOIN products ON product_id
 //              JOIN categories ON mongo_product_id = categories.id
 static LoadResult load_parquet(const std::string& base) {
-    // Read all parquet files in the given directory (columns: wishlist_id, category_name)
+    // Read parquet data with columns wishlist_id and category_name.
     auto tbl = read_parquet_dir(base);
 
     auto wish_ids  = col_to_strings(tbl->GetColumnByName("wishlist_id"));
@@ -740,14 +725,12 @@ static void write_rules_csv(const std::string& path,
 }
 
 // =========================================================
-// ── main ──────────────────────────────────────────────────
+// main
 // Usage:
-//   ./apriori_pipeline <csv> [K_LEVELS] [MIN_SUPPORT] [MIN_CONF] [MIN_LIFT] [MAX_ANTE] [MAX_CONS] [OUTPUT_CSV]
+//   ./apriori_cumulate_cpp <parquet_path> [K_LEVELS] [MIN_SUPPORT]
+//       [MIN_CONF] [MIN_LIFT] [MAX_ANTE] [MAX_CONS] [OUTPUT_CSV]
 //
-// Defaults match the notebook:
-//   K_LEVELS=4  MIN_SUPPORT=0.02  MIN_CONF=0.60  MIN_LIFT=1.5  MAX_ANTE=3  MAX_CONS=2
-//
-// Input CSV must have at minimum two columns: wishlist_id, category_name
+// Input must contain wishlist_id and category_name columns.
 // =========================================================
 int main(int argc, char* argv[]) {
     std::string base_path;
@@ -778,7 +761,7 @@ int main(int argc, char* argv[]) {
     int max_len_v = (max_ante_v > 0 && max_cons_v > 0) ? max_ante_v + max_cons_v : 0;
     std::optional<int> max_len = (max_len_v > 0) ? std::make_optional(max_len_v) : std::nullopt;
 
-    std::cout << "=== C++ Apriori Pipeline (notebook-equivalent) ===\n"
+    std::cout << "=== C++ Cumulate Apriori Pipeline ===\n"
               << "  DATA       : " << base_path << '\n'
               << "  K_LEVELS   : " << K_LEVELS  << '\n'
               << "  MIN_SUPPORT: " << MIN_SUPPORT << '\n'
@@ -802,9 +785,7 @@ int main(int argc, char* argv[]) {
     }
     std::vector<RawRow>& raw_rows = load_res.rows;
 
-    // [2] Build full expanded transactions ---------------------------------
-    // Mirrors Python build_transactions(): each basket contains all generated
-    // L0..L(k-1) tokens before one-hot encoding.
+    // [2] Build full expanded transactions with all L0..L(k-1) tokens.
     std::vector<std::vector<std::string>> transactions;
     {
         auto t0 = std::chrono::high_resolution_clock::now();
@@ -857,7 +838,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // Mirrors Python path_map and branch_label_map.
+        // Build lookup maps from item index to canonical path and branch label.
         for (const auto& [tok, idx] : enc.col_idx) {
             auto pt = parse_token(tok);
             path_map[idx] = pt.label;

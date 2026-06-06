@@ -16,51 +16,6 @@ import pandas as pd
 
 from . import fpcommon as fpc
 
-# ÆNDRING (Hierarki & Regelfiltrering)
-# Valgfri hierarki-aware filtrering af associationsregler
-# samt nye parametre til at styre regel-længder.
-#
-# Oversigt over ændringer:
-# - Ny parameter `branch_ancestry` i `association_rules()`:
-#     Accepterer en dictionary returneret af `fpc.build_branch_ancestry(taxonomy_df)`.
-#     Filtrerer regler hvor en antecedent-tokens *branch-label* (B:xxx-segmentet)
-#     er ancestor eller descendant af en consequent-tokens branch-label i den
-#     rigtige taksonomi.  Dette fanger within-chain regler som
-#     "Cosmetics > Makeup → Personal Care", der passerer den eksisterende
-#     within-window ancestor-tjek fordi "Cosmetics" og "Personal Care" er
-#     i separate K_LEVELS-vinduer, men stadig er direkte ancestor/descendant
-#     i den underliggende taksonomi.
-#
-# - Ny parameter `ancestors` i `association_rules()`:
-#     Accepterer en dictionary med ancestor-relationer.
-#     Hvis givet, udelukkes regler hvor antecedent og consequent
-#     indeholder et ancestor–descendant-par.
-#
-# - Ny parameter `max_ante_len` i `association_rules()`:
-#     Sætter en øvre grænse for antecedentens længde.
-#
-# - Ny parameter `max_cons_len` i `association_rules()`:
-#     Sætter en øvre grænse for consequentens længde.
-#
-# - Ny parameter `require_single_consequent` i `association_rules()`:
-#     Hvis True, kræves det at consequenten kun indeholder ét element.
-#
-# - Ny hjælpefunktion `_rule_violates_hierarchy(antecedent, consequent)`:
-#     Delegerer til `fpc.h_rule_violates_hierarchy()` og returnerer True,
-#     hvis reglen krænker hierarkiet (ancestor–descendant-par på tværs
-#     af antecedent og consequent).
-#
-# - Ny hjælpefunktion `_antecedent_sizes(m)`:
-#     Generator der beregner gyldige antecedent-størrelser baseret på
-#     `max_ante_len`, `max_cons_len` og `require_single_consequent`.
-#     Erstatter den tidligere inline `range(len(k) - 1, 0, -1)`-løkke.
-#
-# - Minimumstjek på itemset-størrelse i hovedløkken:
-#     Itemsets med færre end 2 elementer springes over med `if len(k) < 2`.
-#
-# - `rule_supports`-udpakning ændret fra eksplicitte variabeltildelinger
-#     til tuple-udpakning med én linje.
-
 _metrics = [
     "antecedent support",
     "consequent support",

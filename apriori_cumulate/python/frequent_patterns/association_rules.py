@@ -54,8 +54,10 @@ def association_rules(
     max_cons_len: Optional[int] = None,
     require_single_consequent: bool = False,
 ) -> pd.DataFrame:
-    """Generates a DataFrame of association rules including the
-    metrics 'score', 'confidence', and 'lift'
+    """Generate association rules from frequent itemsets.
+
+    Extends mlxtend's implementation with optional hierarchy-aware filtering,
+    branch-ancestry checks, and antecedent/consequent length constraints.
     """
     if null_values and df_orig is None:
         raise TypeError("If null values exist, df_orig must be provided.")

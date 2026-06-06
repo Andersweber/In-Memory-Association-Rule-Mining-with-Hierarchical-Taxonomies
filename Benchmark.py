@@ -1,15 +1,17 @@
 """
 Benchmark.py — Combined benchmark for GoWish thesis tables.
 
-Runs seven experiments with one command, each with its own flags:
+Runs up to nine experiments with one command, each with its own flags:
 
-  Experiment 1: Sensitivity sweep (τ/λ grid)                    → Table 8
+  Experiment 1: Sensitivity sweep (τ/λ grid)                     → Table 8
   Experiment 2: Basic vs. Python Cumulate                        → Table 9
   Experiment 3: Example rules at K=5, s=0.02                     → Table 3
-  Experiment 4: K-sweep (K=1..5, all implementations)           → Figures 2,3,4,8 + Tables 5,10
+  Experiment 4: K-sweep (K=1..5, all implementations)            → Figures 2,3,4,8 + Tables 5,10
   Experiment 5: Support sweep (s varies, K=3 fixed)              → Figures 5,6 + Table 11
   Experiment 6: L0-to-L0 leaf pair case study                    → Industrial illustration
   Experiment 7: Rule-based candidate-space reduction benchmark   → Figures / reduction stats
+  Experiment 8: Held-out recall evaluation                       → Figure 12
+  Experiment 9: Full-dataset scalability                         → Table 7
 
 Usage:
     python Benchmark.py <merged_parquet_dir> [options]
@@ -71,7 +73,7 @@ OI_BLUE            = "#0072B2"
 OI_VERMILLION      = "#D55E00"
 OI_REDDISH_PURPLE  = "#CC79A7"
 
-# Notebook-exact palette (matches benchmark_thesis_walkthrough.ipynb exactly)
+# Fixed palette used for reproducible benchmark figures
 COL_PY     = "#56B4E9"   # Python Cumulate (same as OI_SKY_BLUE)
 COL_CPP    = "#009E73"   # C++ Cumulate (same as OI_BLUISH_GREEN)
 COL_MLX    = "#D55E00"   # mlxtend flat (same as OI_VERMILLION)
@@ -117,7 +119,7 @@ from frequent_patterns import fpcommon as fpc  # noqa: E402
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        description="Combined benchmark for GoWish thesis (Tables 3, 8, 9 + industrial).",
+        description="Combined benchmark for association-rule mining experiments.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -235,9 +237,9 @@ def parse_args() -> argparse.Namespace:
     g5.add_argument("--ssweep-max-cons-len", type=int, default=2, metavar="B",
                     help="Max consequent length for support-sweep runs (thesis default: 2).")
 
-    # ── Shared catalogue args (experiments 6 & 7) ────────────────────────────
+    # ── Shared catalogue args (experiments 6-8) ────────────────────────────
     gc = p.add_argument_group(
-        "Catalogue settings — Experiments 6 & 7")
+        "Catalogue settings — Experiments 6-8")
     gc.add_argument(
         "--catalogue-base", default=None, metavar="DIR",
         help="Merged parquet file/directory (wishlist_id, product_id, category_name) "

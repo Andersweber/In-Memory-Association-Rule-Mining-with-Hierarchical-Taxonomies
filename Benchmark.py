@@ -1098,14 +1098,25 @@ def _make_support_sweep_figures(
         plt.close(fig)
 
     # ── Figure 6: Efficiency scatter (rules found vs algorithm time) ──────────
-    # Combine support-sweep rows (all implementations) with k-sweep rows.
-    # Thesis caption: "all three implementations across K∈{1..5} and s∈{0.05..0.01}"
+    # Combine observed Cumulate configurations from the K-sweep and support-sweep.
+    # mlxtend is a flat baseline, so keep only its K=1 k-sweep point.
     all_rows: List[Dict[str, Any]] = list(good)
     if k_sweep_csv is not None and k_sweep_csv.exists():
         try:
             all_rows.extend(pd.read_csv(k_sweep_csv).to_dict(orient="records"))
         except Exception:
             pass
+
+    def _is_mlxtend_k1_baseline(r: Dict[str, Any]) -> bool:
+        if str(r.get("implementation", "")) != "mlxtend_flat":
+            return True
+        try:
+            k_level = int(float(r.get("k_levels")))
+        except (TypeError, ValueError):
+            return False
+        return str(r.get("experiment", "")) == "k_sweep" and k_level == 1
+
+    all_rows = [r for r in all_rows if _is_mlxtend_k1_baseline(r)]
 
     # Aggregate repeats: median time per unique (implementation, k_levels, min_support) condition
     if all_rows:
@@ -1120,7 +1131,7 @@ def _make_support_sweep_figures(
         "cpp_cumulate":    {"color": OI_BLUISH_GREEN, "marker": "o", "label": "C++ Cumulate"},
         "python_cumulate": {"color": OI_SKY_BLUE,     "marker": "^", "label": "Python Cumulate"},
         "mlxtend_basic":   {"color": OI_VERMILLION,   "marker": "s", "label": "mlxtend (basic)"},
-        "mlxtend_flat":    {"color": OI_VERMILLION,   "marker": "s", "label": "mlxtend (flat)"},
+        "mlxtend_flat":    {"color": OI_VERMILLION,   "marker": "s", "label": "mlxtend flat (K=1)"},
     }
     scatter: Dict[str, tuple] = {}
     for r in all_rows:

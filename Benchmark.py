@@ -406,13 +406,32 @@ def extract_metrics(stdout: str, stderr: str) -> Dict[str, Any]:
                    r"After antimirror dedupe:\s*([0-9,]+)\s+rules"]),
     }
     # C++ binary emits millisecond timings — fill in any gaps not matched above
+    cpp_branch_ancestry = _first_ms(
+        text, r"\[4\] Built branch ancestry for \d+ labels in ([0-9.]+) ms")
+    cpp_ancestor_map = _first_ms(
+        text, r"\[4b\] Built ancestors for \d+ items in ([0-9.]+) ms")
+    cpp_ancestor_parts = [cpp_branch_ancestry, cpp_ancestor_map]
+    cpp_ancestor_seconds = (
+        sum(float(v) for v in cpp_ancestor_parts if v is not None)
+        if any(v is not None for v in cpp_ancestor_parts) else None
+    )
+    cpp_post_parts = [
+        _first_ms(text, r"\[7\] After score\+rank:\s*\d+ rules in ([0-9.]+) ms"),
+        _first_ms(text, r"\[8\] After family dedupe:\s*\d+ rules in ([0-9.]+) ms"),
+        _first_ms(text, r"\[9\] After antimirror dedupe:\s*\d+ rules in ([0-9.]+) ms"),
+    ]
+    cpp_postprocess_seconds = (
+        sum(float(v) for v in cpp_post_parts if v is not None)
+        if any(v is not None for v in cpp_post_parts) else None
+    )
     cpp_fills: Dict[str, Optional[Any]] = {
         "load_data_seconds":            _first_ms(text, r"\[1\] Loaded \d+ rows in ([0-9.]+) ms"),
         "build_transactions_seconds":   _first_ms(text, r"\[2\] Built \d+ transactions in ([0-9.]+) ms"),
         "encode_transactions_seconds":  _first_ms(text, r"\[3\] Encoded .+ in ([0-9.]+) ms"),
-        "build_ancestor_map_seconds":   _first_ms(text, r"\[4b\] Built ancestors for \d+ items in ([0-9.]+) ms"),
+        "build_ancestor_map_seconds":   cpp_ancestor_seconds,
         "apriori_seconds":              _first_ms(text, r"\[5\] Apriori: \d+ itemsets in ([0-9.]+) ms"),
         "association_rules_seconds":    _first_ms(text, r"\[6\] Rules \(raw\): \d+ in ([0-9.]+) ms"),
+        "postprocess_seconds":          cpp_postprocess_seconds,
     }
     for _ck, _cv in cpp_fills.items():
         if out.get(_ck) is None and _cv is not None:
@@ -984,7 +1003,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         _save_figure_pdf(fig, figs_dir / "thesis_redundancy_stacked.pdf")
         plt.close(fig)
 
-    # ── Figure 9: Phase breakdown — all k-levels × all implementations ────────
+    # ── Figure 9: Pipeline phase breakdown by k-level ─────────────────────────
     phase_specs = [
         ("apriori_seconds",             "apriori"),
         ("postprocess_seconds",         "post"),
@@ -993,12 +1012,9 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         ("build_transactions_seconds",  "transactions"),
         ("build_ancestor_map_seconds",  "ancestor"),
     ]
-    # Phase colors exactly matching benchmark_thesis_walkthrough.ipynb Figure 9
     phase_colors = [COL_RED, "#8C564B", COL_ORANGE, "#756BB1", COL_PY, "#4CAF50"]
-    # Bar order matches thesis: cpp first, then mlx, then py
     impl_short = [
         ("cpp_cumulate",    "cpp"),
-        ("mlxtend_flat",    "mlx"),
         ("python_cumulate", "py"),
     ]
     bar_labels: List[str] = []
@@ -1006,6 +1022,8 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
     for k in sorted(k_values):
         for impl, short in impl_short:
             if not any(r.get("implementation") == impl for r in good):
+                continue
+            if med("algorithm_core_seconds", impl=impl, k=k) is None:
                 continue
             bar_labels.append(f"k{k}\n{short}")
             for field, name in phase_specs:
@@ -1019,10 +1037,13 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
                    edgecolor="black", linewidth=0.2)
             bottom += vals_p
         ax.set_ylim(0, bottom.max() * 1.15)
-        ax.set_ylabel("seconds")
-        ax.legend(ncol=3, loc="upper left", bbox_to_anchor=(0, 1), frameon=True, fontsize=9)
+        ax.set_ylabel("Pipeline phase time (s)")
+        ax.legend(
+            ncol=3, loc="lower center", bbox_to_anchor=(0.5, 1.02),
+            frameon=True, fontsize=9,
+        )
         _paper_axes(ax)
-        fig.tight_layout()
+        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.86))
         _save_figure_pdf(fig, figs_dir / "phase_breakdown_baseline.pdf")
         plt.close(fig)
 

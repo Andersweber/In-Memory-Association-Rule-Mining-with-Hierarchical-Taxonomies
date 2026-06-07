@@ -803,9 +803,11 @@ int main(int argc, char* argv[]) {
                   << " uint64 blocks/item) in " << ms << " ms\n";
     }
 
+    const bool use_hierarchy = K_LEVELS > 1;
+
     // [4] Branch ancestry ---------------------------------------------------
     BranchAncestry branch_ancestry;
-    {
+    if (use_hierarchy) {
         auto t0 = std::chrono::high_resolution_clock::now();
         auto taxonomy_paths = expand_category_path_prefixes(load_res.cat_paths);
         branch_ancestry = build_branch_ancestry(taxonomy_paths);
@@ -813,13 +815,15 @@ int main(int argc, char* argv[]) {
             std::chrono::high_resolution_clock::now()-t0).count();
         std::cout << "[4] Built branch ancestry for " << branch_ancestry.size()
                   << " labels in " << ms << " ms\n";
+    } else {
+        std::cout << "[4] Branch ancestry skipped for K_LEVELS=1\n";
     }
 
     // [4b] Build ancestor map + path_map ------------------------------------
     AncestorMap ancestors_idx;
     std::unordered_map<int,std::string> path_map;
     BranchLabelMap branch_label_map;
-    {
+    if (use_hierarchy) {
         auto t0 = std::chrono::high_resolution_clock::now();
         auto ancestors_str = build_ancestors_from_tokens(enc.col_names, &branch_ancestry);
 
@@ -844,6 +848,8 @@ int main(int argc, char* argv[]) {
             std::chrono::high_resolution_clock::now()-t0).count();
         std::cout << "[4b] Built ancestors for " << ancestors_idx.size()
                   << " items in " << ms << " ms\n";
+    } else {
+        std::cout << "[4b] Ancestor map skipped for K_LEVELS=1\n";
     }
 
     // [5] Apriori -----------------------------------------------------------
@@ -854,8 +860,8 @@ int main(int argc, char* argv[]) {
             enc,
             MIN_SUPPORT,
             max_len,
-            &ancestors_idx,
-            &path_map,
+            use_hierarchy ? &ancestors_idx : nullptr,
+            use_hierarchy ? &path_map : nullptr,
             /*verbose=*/true);
         double ms = std::chrono::duration<double,std::milli>(
             std::chrono::high_resolution_clock::now()-t0).count();
@@ -870,11 +876,12 @@ int main(int argc, char* argv[]) {
         auto t0 = std::chrono::high_resolution_clock::now();
         raw_rules = association_rules(
             freq_map, MIN_CONF,
-            &ancestors_idx, &path_map,
+            use_hierarchy ? &ancestors_idx : nullptr,
+            use_hierarchy ? &path_map : nullptr,
             max_ante, max_cons,
             /*require_single_consequent=*/false,
-            &branch_label_map,
-            &branch_ancestry);
+            use_hierarchy ? &branch_label_map : nullptr,
+            use_hierarchy ? &branch_ancestry : nullptr);
         double ms = std::chrono::duration<double,std::milli>(
             std::chrono::high_resolution_clock::now()-t0).count();
         std::cout << "[6] Rules (raw): " << raw_rules.size() << " in " << ms << " ms\n";

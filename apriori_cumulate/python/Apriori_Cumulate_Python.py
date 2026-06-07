@@ -521,19 +521,28 @@ def main():
     with timed_step("Encoding transactions"):
         df_encoded = encode_transactions(transactions, all_tokens)
 
-    with timed_step("Building ancestor map"):
-        # Expand leaf paths to all intermediate prefixes so build_branch_ancestry
-        # sees the full taxonomy tree, including both internal nodes and leaf paths.
-        _all_taxonomy_paths: set[str] = set()
-        for path in df_min["category_name"].dropna().unique():
-            parts = [p.strip() for p in str(path).split(">") if p.strip()]
-            for i in range(1, len(parts) + 1):
-                _all_taxonomy_paths.add(" > ".join(parts[:i]))
-        branch_ancestry = fpc.build_branch_ancestry(
-            pd.DataFrame({"category_name": sorted(_all_taxonomy_paths)}),
-            name_col="category_name",
-        )
-        ancestors = build_ancestors_from_tokens(all_tokens, branch_ancestry=branch_ancestry)
+    use_hierarchy = args.k_levels > 1
+    ancestors = None
+    branch_ancestry = None
+    if use_hierarchy:
+        with timed_step("Building ancestor map"):
+            # Expand leaf paths to all intermediate prefixes so build_branch_ancestry
+            # sees the full taxonomy tree, including both internal nodes and leaf paths.
+            _all_taxonomy_paths: set[str] = set()
+            for path in df_min["category_name"].dropna().unique():
+                parts = [p.strip() for p in str(path).split(">") if p.strip()]
+                for i in range(1, len(parts) + 1):
+                    _all_taxonomy_paths.add(" > ".join(parts[:i]))
+            branch_ancestry = fpc.build_branch_ancestry(
+                pd.DataFrame({"category_name": sorted(_all_taxonomy_paths)}),
+                name_col="category_name",
+            )
+            ancestors = build_ancestors_from_tokens(all_tokens, branch_ancestry=branch_ancestry)
+    else:
+        print("Building ancestor map skipped for K_LEVELS=1")
+
+    effective_candidate_pruning = args.candidate_pruning if use_hierarchy else "none"
+    effective_rule_filtering = args.rule_filtering if use_hierarchy else "none"
 
     with timed_step("Mining rules"):
         rules_raw = mine_rules_raw(
@@ -547,8 +556,8 @@ def main():
             require_single_consequent=False,
             path_map=path_map,
             branch_ancestry=branch_ancestry,
-            candidate_pruning=args.candidate_pruning,
-            rule_filtering=args.rule_filtering,
+            candidate_pruning=effective_candidate_pruning,
+            rule_filtering=effective_rule_filtering,
         )
 
     with timed_step("Scoring & deduplicating"):

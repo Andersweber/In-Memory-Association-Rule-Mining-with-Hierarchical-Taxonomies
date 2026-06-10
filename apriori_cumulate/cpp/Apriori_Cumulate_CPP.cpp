@@ -8,9 +8,11 @@
 #include "association_rules.hpp"
 
 #include <algorithm>
+#include <bitset>
 #include <chrono>
 #include <cstdint>
 #include <fstream>
+#include <memory>
 #include <iomanip>
 #include <iostream>
 #include <map>
@@ -277,13 +279,25 @@ struct EncodedData {
     std::unordered_map<std::string, int> col_idx;
 };
 
+// ---------------------------------------------------------------------------
+// Vertical transaction representation (paper §4.4 / §6.3):
+// each category-derived token is stored together with a std::bitset in which
+// each bit represents one wishlist transaction. std::bitset<N> fixes the
+// transaction capacity at compile time; recompile with
+//     -DMAX_TRANSACTIONS=<N>
+// for datasets with more transactions.
+// ---------------------------------------------------------------------------
+#ifndef MAX_TRANSACTIONS
+#define MAX_TRANSACTIONS 1048576
+#endif
+using TxBitset = std::bitset<MAX_TRANSACTIONS>;
+
 struct BitsetEncodedData {
-    std::vector<std::vector<std::uint64_t>> item_bits; // item -> transaction bitset
+    std::vector<TxBitset> item_bits; // item -> transaction std::bitset
     std::vector<int> item_counts;
     std::vector<std::string> col_names;
     std::unordered_map<std::string, int> col_idx;
     int n_rows = 0;
-    int n_blocks = 0;
 };
 
 static CumulateTransactions
@@ -359,20 +373,23 @@ static BitsetEncodedData encode_transactions_bitset(
 
     const int n_rows = (int)transactions.size();
     const int n_cols = (int)col_names.size();
-    const int n_blocks = (n_rows + 63) / 64;
 
-    std::vector<std::vector<std::uint64_t>> item_bits(
-        n_cols, std::vector<std::uint64_t>(n_blocks, 0));
+    if (n_rows > (int)MAX_TRANSACTIONS)
+        throw std::runtime_error(
+            "Dataset has " + std::to_string(n_rows) +
+            " transactions, but this binary was compiled with std::bitset<" +
+            std::to_string(MAX_TRANSACTIONS) +
+            ">. Recompile with -DMAX_TRANSACTIONS=<N> where N >= " +
+            std::to_string(n_rows) + ".");
+
+    std::vector<TxBitset> item_bits(n_cols); // zero-initialised bitsets
     std::vector<int> item_counts(n_cols, 0);
 
     for (int r = 0; r < n_rows; ++r) {
-        const int block = r >> 6;
-        const int offset = r & 63;
-        const std::uint64_t mask = 1ULL << offset;
         for (const auto& tok : transactions[r]) {
             int c = col_idx.at(tok);
-            if ((item_bits[c][block] & mask) == 0) {
-                item_bits[c][block] |= mask;
+            if (!item_bits[c].test(r)) {
+                item_bits[c].set(r);
                 ++item_counts[c];
             }
         }
@@ -384,33 +401,21 @@ static BitsetEncodedData encode_transactions_bitset(
         std::move(col_names),
         std::move(col_idx),
         n_rows,
-        n_blocks,
     };
 }
 
-static inline int popcount64(std::uint64_t x) {
-    return __builtin_popcountll((unsigned long long)x);
-}
-
 static int support_count_bitset(
-    const std::vector<std::vector<std::uint64_t>>& item_bits,
+    const std::vector<TxBitset>& item_bits,
     const Itemset& cand,
-    std::vector<std::uint64_t>& scratch) {
+    TxBitset& scratch) {
     if (cand.empty()) return 0;
 
-    const auto& first = item_bits[cand[0]];
-    scratch.assign(first.begin(), first.end());
+    scratch = item_bits[cand[0]];
+    for (std::size_t j = 1; j < cand.size(); ++j)
+        scratch &= item_bits[cand[j]];
 
-    for (std::size_t j = 1; j < cand.size(); ++j) {
-        const auto& bits = item_bits[cand[j]];
-        for (std::size_t b = 0; b < scratch.size(); ++b)
-            scratch[b] &= bits[b];
-    }
-
-    int count = 0;
-    for (std::uint64_t word : scratch)
-        count += popcount64(word);
-    return count;
+    // std::bitset::count() compiles to hardware population-count operations.
+    return (int)scratch.count();
 }
 
 static std::vector<FrequentItemset> apriori_bitset(
@@ -446,8 +451,8 @@ static std::vector<FrequentItemset> apriori_bitset(
     }
 
     int max_itemset = 1;
-    std::vector<std::uint64_t> scratch;
-    scratch.reserve(enc.n_blocks);
+    auto scratch_ptr = std::make_unique<TxBitset>(); // heap: may be large
+    TxBitset& scratch = *scratch_ptr;
 
     while (!current_L.empty() && (!max_len.has_value() || max_itemset < *max_len)) {
         int k = max_itemset + 1;
@@ -602,9 +607,9 @@ static std::shared_ptr<arrow::Table> read_parquet_dir(const std::string& dir) {
     for (const auto& path : files) {
         auto infile_res = arrow::io::ReadableFile::Open(path);
         if (!infile_res.ok()) throw std::runtime_error("Cannot open: " + path + " – " + infile_res.status().ToString());
-        std::unique_ptr<parquet::arrow::FileReader> reader;
-        auto st_open = parquet::arrow::OpenFile(*infile_res, arrow::default_memory_pool(), &reader);
-        if (!st_open.ok()) throw std::runtime_error("Cannot open parquet: " + path + " – " + st_open.ToString());
+        auto reader_res = parquet::arrow::OpenFile(*infile_res, arrow::default_memory_pool());
+        if (!reader_res.ok()) throw std::runtime_error("Cannot open parquet: " + path + " – " + reader_res.status().ToString());
+        std::unique_ptr<parquet::arrow::FileReader> reader = std::move(*reader_res);
         std::shared_ptr<arrow::Table> tbl;
         auto st = reader->ReadTable(&tbl);
         if (!st.ok()) throw std::runtime_error("Cannot read parquet: " + path + " – " + st.ToString());
@@ -799,8 +804,8 @@ int main(int argc, char* argv[]) {
         double ms = std::chrono::duration<double,std::milli>(
             std::chrono::high_resolution_clock::now()-t0).count();
         std::cout << "[3] Encoded vertical bitsets " << enc.n_rows << " x "
-                  << enc.col_names.size() << " (" << enc.n_blocks
-                  << " uint64 blocks/item) in " << ms << " ms\n";
+                  << enc.col_names.size() << " (std::bitset<" << MAX_TRANSACTIONS
+                  << "> per item) in " << ms << " ms\n";
     }
 
     const bool use_hierarchy = K_LEVELS > 1;

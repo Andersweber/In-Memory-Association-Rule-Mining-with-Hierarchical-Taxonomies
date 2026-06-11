@@ -298,6 +298,12 @@ struct BitsetEncodedData {
     std::vector<std::string> col_names;
     std::unordered_map<std::string, int> col_idx;
     int n_rows = 0;
+    // Number of uint64_t words that actually contain transaction bits.
+    // Bits beyond position n_rows-1 are always zero; partial AND+count
+    // only touches these n_blocks_live words, eliminating wasted iteration
+    // over the zero-padded tail that std::bitset<MAX_TRANSACTIONS> would
+    // otherwise scan on every count() call.
+    int n_blocks_live = 0;
 };
 
 static CumulateTransactions
@@ -401,21 +407,43 @@ static BitsetEncodedData encode_transactions_bitset(
         std::move(col_names),
         std::move(col_idx),
         n_rows,
+        // Live prefix: only (n_rows+63)/64 words contain actual data.
+        (n_rows + 63) / 64,
     };
 }
 
+// Support counting: bitwise AND the item bitsets, then count set bits.
+//
+// std::bitset<MAX_TRANSACTIONS> always has MAX_TRANSACTIONS/64 words, but
+// only the first n_blocks_live words contain actual transaction data — the
+// rest are permanently zero. By casting to uint64_t* and operating only on
+// the live prefix we perform exactly the same work as a right-sized dynamic
+// block array while keeping std::bitset as the storage type (paper §4.4).
+// The hardware population-count instruction is invoked via __builtin_popcountll,
+// which the compiler lowers to the POPCNT instruction under -march=native.
 static int support_count_bitset(
     const std::vector<TxBitset>& item_bits,
     const Itemset& cand,
-    TxBitset& scratch) {
+    uint64_t* scratch,       // caller-owned buffer of >= n_blocks_live words
+    int n_blocks_live) {
     if (cand.empty()) return 0;
 
-    scratch = item_bits[cand[0]];
-    for (std::size_t j = 1; j < cand.size(); ++j)
-        scratch &= item_bits[cand[j]];
+    // Copy live prefix of the first item's bitset into the scratch buffer.
+    const uint64_t* src = reinterpret_cast<const uint64_t*>(&item_bits[cand[0]]);
+    std::memcpy(scratch, src, n_blocks_live * sizeof(uint64_t));
 
-    // std::bitset::count() compiles to hardware population-count operations.
-    return (int)scratch.count();
+    // AND remaining items, live words only.
+    for (std::size_t j = 1; j < cand.size(); ++j) {
+        const uint64_t* b = reinterpret_cast<const uint64_t*>(&item_bits[cand[j]]);
+        for (int k = 0; k < n_blocks_live; ++k)
+            scratch[k] &= b[k];
+    }
+
+    // Hardware popcount over live prefix only.
+    int count = 0;
+    for (int k = 0; k < n_blocks_live; ++k)
+        count += __builtin_popcountll(scratch[k]);
+    return count;
 }
 
 static std::vector<FrequentItemset> apriori_bitset(
@@ -451,8 +479,10 @@ static std::vector<FrequentItemset> apriori_bitset(
     }
 
     int max_itemset = 1;
-    auto scratch_ptr = std::make_unique<TxBitset>(); // heap: may be large
-    TxBitset& scratch = *scratch_ptr;
+    // Scratch buffer for partial AND+count: only n_blocks_live words, heap-allocated.
+    const int n_blocks_live = enc.n_blocks_live;
+    auto scratch_buf = std::make_unique<uint64_t[]>(n_blocks_live);
+    uint64_t* scratch = scratch_buf.get();
 
     while (!current_L.empty() && (!max_len.has_value() || max_itemset < *max_len)) {
         int k = max_itemset + 1;
@@ -466,7 +496,7 @@ static std::vector<FrequentItemset> apriori_bitset(
         next_L.reserve(candidates.size());
 
         for (const auto& cand : candidates) {
-            int cnt = support_count_bitset(enc.item_bits, cand, scratch);
+            int cnt = support_count_bitset(enc.item_bits, cand, scratch, n_blocks_live);
             if ((double)cnt >= threshold) {
                 next_L.push_back(cand);
                 result.push_back({cand, (double)cnt / n_rows});

@@ -799,9 +799,12 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
 
     def af(v: Any) -> Optional[float]:
         try:
-            return float(v)
+            f = float(v)
         except (TypeError, ValueError):
             return None
+        # NaN arrives when rows are re-loaded from CSV (missing fields);
+        # treat like the in-memory None case.
+        return None if f != f else f
 
     good = [r for r in rows if r.get("success")]
     if not good:
@@ -1003,47 +1006,97 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         _save_figure_pdf(fig, figs_dir / "thesis_redundancy_stacked.pdf")
         plt.close(fig)
 
-    # ── Figure 9: Pipeline phase breakdown by k-level ─────────────────────────
-    phase_specs = [
-        ("apriori_seconds",             "apriori"),
-        ("postprocess_seconds",         "post"),
-        ("encode_transactions_seconds", "encoding"),
-        ("association_rules_seconds",   "rules"),
+    # ── Figure 9: Algorithm core vs. full pipeline phase breakdown ────────────
+    # Panel (a): algorithm-core time (Apriori + rule generation) for Python vs
+    #            C++ Cumulate, log scale, annotated with the per-K speedup.
+    #            This is the quantity all runtime claims in the paper refer to.
+    # Panel (b): full-pipeline phase breakdown (stacked). Core phases (apriori,
+    #            rules) are drawn first and hatched so the reader can separate
+    #            the mining cost from one-off data-preparation cost
+    #            (transactions, encoding, ancestor map, post-processing).
+    # mlxtend is intentionally excluded: its flat encoding has no hierarchy
+    # phases, so a phase-level comparison is not meaningful.
+    core_specs = [
+        ("apriori_seconds",             "apriori (core)"),
+        ("association_rules_seconds",   "rules (core)"),
+    ]
+    prep_specs = [
         ("build_transactions_seconds",  "transactions"),
-        ("build_ancestor_map_seconds",  "ancestor"),
+        ("encode_transactions_seconds", "encoding"),
+        ("build_ancestor_map_seconds",  "ancestor map"),
+        ("postprocess_seconds",         "post-processing"),
     ]
-    phase_colors = [COL_RED, "#8C564B", COL_ORANGE, "#756BB1", COL_PY, "#4CAF50"]
+    core_colors = [COL_RED, "#756BB1"]
+    prep_colors = [COL_PY, COL_ORANGE, "#4CAF50", "#8C564B"]
     impl_short = [
-        ("cpp_cumulate",    "cpp"),
         ("python_cumulate", "py"),
+        ("cpp_cumulate",    "cpp"),
     ]
-    bar_labels: List[str] = []
-    phase_vals: Dict[str, List[float]] = {name: [] for _, name in phase_specs}
-    for k in sorted(k_values):
-        for impl, short in impl_short:
-            if not any(r.get("implementation") == impl for r in good):
-                continue
-            if med("algorithm_core_seconds", impl=impl, k=k) is None:
-                continue
-            bar_labels.append(f"k{k}\n{short}")
-            for field, name in phase_specs:
-                phase_vals[name].append(med(field, impl=impl, k=k) or 0.0)
-    if bar_labels:
-        fig, ax = plt.subplots(figsize=(6.2, 3.52))
+    sorted_ks = [k for k in sorted(k_values)
+                 if any(med("algorithm_core_seconds", impl=impl, k=k) is not None
+                        for impl, _ in impl_short)]
+    have_both = all(
+        any(r.get("implementation") == impl for r in good)
+        for impl, _ in impl_short
+    )
+    if sorted_ks and have_both:
+        fig, (ax_core, ax_full) = plt.subplots(
+            1, 2, figsize=(9.6, 3.6), gridspec_kw={"width_ratios": [1.0, 1.55]})
+
+        # ---- Panel (a): algorithm-core comparison (log scale) ----
+        xs = np.arange(len(sorted_ks))
+        width = 0.38
+        core_py  = [med("algorithm_core_seconds", impl="python_cumulate", k=k) or 0.0
+                    for k in sorted_ks]
+        core_cpp = [med("algorithm_core_seconds", impl="cpp_cumulate", k=k) or 0.0
+                    for k in sorted_ks]
+        ax_core.bar(xs - width/2, core_py,  width, label="Python Cumulate",
+                    color=COL_PY, edgecolor="black", linewidth=0.4)
+        ax_core.bar(xs + width/2, core_cpp, width, label="C++ Cumulate",
+                    color=COL_RED, edgecolor="black", linewidth=0.4)
+        ax_core.set_yscale("log")
+        ax_core.set_xticks(xs, [f"K={k}" for k in sorted_ks])
+        ax_core.set_ylabel("Algorithm-core time (s, log)")
+        ax_core.set_title("(a) Apriori + rule generation", fontsize=10)
+        for x, (tp, tc) in zip(xs, zip(core_py, core_cpp)):
+            if tc > 0 and tp > 0:
+                ax_core.annotate(f"{tp / tc:.0f}\u00d7",
+                                 xy=(x + width/2, tc), xytext=(0, 3),
+                                 textcoords="offset points",
+                                 ha="center", fontsize=8.5, fontweight="bold")
+        ax_core.legend(frameon=True, fontsize=8.5, loc="upper left")
+        _paper_axes(ax_core)
+
+        # ---- Panel (b): full-pipeline stacked phases, core hatched ----
+        bar_labels: List[str] = []
+        stack_specs  = core_specs + prep_specs
+        stack_colors = core_colors + prep_colors
+        stack_hatch  = ["//"] * len(core_specs) + [None] * len(prep_specs)
+        phase_vals: Dict[str, List[float]] = {name: [] for _, name in stack_specs}
+        for k in sorted_ks:
+            for impl, short in impl_short:
+                if med("algorithm_core_seconds", impl=impl, k=k) is None:
+                    continue
+                bar_labels.append(f"K{k}\n{short}")
+                for field, name in stack_specs:
+                    phase_vals[name].append(med(field, impl=impl, k=k) or 0.0)
+
         bottom = np.zeros(len(bar_labels))
-        for (field, name), color in zip(phase_specs, phase_colors):
+        for (field, name), color, hatch in zip(stack_specs, stack_colors, stack_hatch):
             vals_p = np.array(phase_vals[name])
-            ax.bar(bar_labels, vals_p, bottom=bottom, label=name, color=color,
-                   edgecolor="black", linewidth=0.2)
+            ax_full.bar(bar_labels, vals_p, bottom=bottom, label=name,
+                        color=color, edgecolor="black", linewidth=0.2,
+                        hatch=hatch)
             bottom += vals_p
-        ax.set_ylim(0, bottom.max() * 1.15)
-        ax.set_ylabel("Pipeline phase time (s)")
-        ax.legend(
-            ncol=3, loc="lower center", bbox_to_anchor=(0.5, 1.02),
-            frameon=True, fontsize=9,
-        )
-        _paper_axes(ax)
-        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.86))
+        ax_full.set_ylim(0, bottom.max() * 1.18)
+        ax_full.set_ylabel("Full-pipeline phase time (s)")
+        ax_full.set_title("(b) Phase breakdown (hatched = algorithm core)",
+                          fontsize=10, pad=34)
+        ax_full.legend(ncol=3, loc="lower center", bbox_to_anchor=(0.5, 1.005),
+                       frameon=True, fontsize=7.8)
+        _paper_axes(ax_full)
+
+        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.92))
         _save_figure_pdf(fig, figs_dir / "phase_breakdown_baseline.pdf")
         plt.close(fig)
 
@@ -1061,9 +1114,12 @@ def _make_support_sweep_figures(
 
     def af(v: Any) -> Optional[float]:
         try:
-            return float(v)
+            f = float(v)
         except (TypeError, ValueError):
             return None
+        # NaN arrives when rows are re-loaded from CSV (missing fields);
+        # treat like the in-memory None case.
+        return None if f != f else f
 
     good = [r for r in rows if r.get("success")]
     if not good:

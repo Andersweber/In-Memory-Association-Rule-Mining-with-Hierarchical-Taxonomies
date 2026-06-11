@@ -32,6 +32,7 @@
 
 #include <arrow/api.h>
 #include <arrow/io/api.h>
+#include <arrow/util/config.h>  // ARROW_VERSION_MAJOR for API guards
 #include <parquet/arrow/reader.h>
 #include <parquet/file_reader.h>
 
@@ -249,22 +250,62 @@ struct RawRow { std::string wishlist_id; std::string category_name; };
 
 static std::vector<std::vector<std::string>>
 build_transactions(const std::vector<RawRow>& rows, int k_levels) {
-    std::map<std::string, std::vector<std::string>> basket_map;
-    std::map<std::string, std::unordered_set<std::string>> seen;
+    // Tokenisation cache: category paths repeat across many rows (the real
+    // dataset has ~6.7k distinct paths over millions of rows), so tokenise
+    // each distinct path once and intern its tokens as integer IDs. All
+    // per-row dedup work then runs on integers instead of strings.
+    std::vector<std::string> token_names;
+    std::unordered_map<std::string, int> token_id;
+    std::unordered_map<std::string, std::vector<int>> path_token_ids;
+    path_token_ids.reserve(16384);
+
+    auto intern = [&](const std::string& tok) -> int {
+        auto it = token_id.find(tok);
+        if (it != token_id.end()) return it->second;
+        int id = (int)token_names.size();
+        token_names.push_back(tok);
+        token_id.emplace(tok, id);
+        return id;
+    };
+
+    // Wishlist ids are likewise mapped to dense integers on first sight.
+    std::unordered_map<std::string, int> wid_index;
+    wid_index.reserve(rows.size() / 4 + 1);
+    std::vector<std::vector<int>> baskets;          // wishlist -> token ids
+    std::vector<std::unordered_set<int>> seen;      // wishlist -> dedup set
 
     for (const auto& row : rows) {
         if (row.wishlist_id.empty() || row.category_name.empty()) continue;
-        auto toks = make_level_tokens(row.category_name, k_levels);
-        for (const auto& tok : toks) {
-            if (seen[row.wishlist_id].insert(tok).second)
-                basket_map[row.wishlist_id].push_back(tok);
+
+        auto pit = path_token_ids.find(row.category_name);
+        if (pit == path_token_ids.end()) {
+            std::vector<int> ids;
+            for (const auto& tok : make_level_tokens(row.category_name, k_levels))
+                ids.push_back(intern(tok));
+            pit = path_token_ids.emplace(row.category_name, std::move(ids)).first;
         }
+
+        auto wit = wid_index.find(row.wishlist_id);
+        if (wit == wid_index.end()) {
+            wit = wid_index.emplace(row.wishlist_id, (int)baskets.size()).first;
+            baskets.emplace_back();
+            seen.emplace_back();
+        }
+        const int w = wit->second;
+        for (int id : pit->second)
+            if (seen[w].insert(id).second)
+                baskets[w].push_back(id);
     }
 
+    // Materialise string transactions (interface unchanged downstream).
     std::vector<std::vector<std::string>> transactions;
-    transactions.reserve(basket_map.size());
-    for (auto& [wid, items] : basket_map)
-        transactions.push_back(std::move(items));
+    transactions.reserve(baskets.size());
+    for (const auto& basket : baskets) {
+        std::vector<std::string> tx;
+        tx.reserve(basket.size());
+        for (int id : basket) tx.push_back(token_names[id]);
+        transactions.push_back(std::move(tx));
+    }
     return transactions;
 }
 
@@ -637,9 +678,17 @@ static std::shared_ptr<arrow::Table> read_parquet_dir(const std::string& dir) {
     for (const auto& path : files) {
         auto infile_res = arrow::io::ReadableFile::Open(path);
         if (!infile_res.ok()) throw std::runtime_error("Cannot open: " + path + " – " + infile_res.status().ToString());
+        std::unique_ptr<parquet::arrow::FileReader> reader;
+#if defined(ARROW_VERSION_MAJOR) && ARROW_VERSION_MAJOR >= 21
+        // Arrow >= 21: Result-returning overload (Status overload removed).
         auto reader_res = parquet::arrow::OpenFile(*infile_res, arrow::default_memory_pool());
         if (!reader_res.ok()) throw std::runtime_error("Cannot open parquet: " + path + " – " + reader_res.status().ToString());
-        std::unique_ptr<parquet::arrow::FileReader> reader = std::move(*reader_res);
+        reader = std::move(*reader_res);
+#else
+        // Older Arrow (e.g. HPC anaconda builds): Status + out-parameter API.
+        auto st_open = parquet::arrow::OpenFile(*infile_res, arrow::default_memory_pool(), &reader);
+        if (!st_open.ok()) throw std::runtime_error("Cannot open parquet: " + path + " – " + st_open.ToString());
+#endif
         std::shared_ptr<arrow::Table> tbl;
         auto st = reader->ReadTable(&tbl);
         if (!st.ok()) throw std::runtime_error("Cannot read parquet: " + path + " – " + st.ToString());

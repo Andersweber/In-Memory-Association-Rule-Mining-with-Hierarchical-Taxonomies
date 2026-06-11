@@ -1006,31 +1006,26 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         _save_figure_pdf(fig, figs_dir / "thesis_redundancy_stacked.pdf")
         plt.close(fig)
 
-    # ── Figure 9: Algorithm core vs. full pipeline phase breakdown ────────────
+    # ── Figure 9: Algorithm core (a) + pipeline phase breakdown (b) ──────────
     # Panel (a): algorithm-core time (Apriori + rule generation) for Python vs
     #            C++ Cumulate, log scale, annotated with the per-K speedup.
-    #            This is the quantity all runtime claims in the paper refer to.
-    # Panel (b): full-pipeline phase breakdown (stacked). Core phases (apriori,
-    #            rules) are drawn first and hatched so the reader can separate
-    #            the mining cost from one-off data-preparation cost
-    #            (transactions, encoding, ancestor map, post-processing).
-    # mlxtend is intentionally excluded: its flat encoding has no hierarchy
-    # phases, so a phase-level comparison is not meaningful.
-    core_specs = [
-        ("apriori_seconds",             "apriori (core)"),
-        ("association_rules_seconds",   "rules (core)"),
-    ]
-    prep_specs = [
-        ("build_transactions_seconds",  "transactions"),
+    #            This is the quantity the runtime claims in the paper refer to.
+    # Panel (b): full-pipeline phase breakdown — identical phase order, colours
+    #            and labels to the original thesis figure.
+    # mlxtend is excluded here: its flat encoding has no hierarchy phases, so a
+    # phase-level comparison is not meaningful (it appears in Figs. 4 and 6).
+    phase_specs = [
+        ("apriori_seconds",             "apriori"),
+        ("postprocess_seconds",         "post"),
         ("encode_transactions_seconds", "encoding"),
-        ("build_ancestor_map_seconds",  "ancestor map"),
-        ("postprocess_seconds",         "post-processing"),
+        ("association_rules_seconds",   "rules"),
+        ("build_transactions_seconds",  "transactions"),
+        ("build_ancestor_map_seconds",  "ancestor"),
     ]
-    core_colors = [COL_RED, "#756BB1"]
-    prep_colors = [COL_PY, COL_ORANGE, "#4CAF50", "#8C564B"]
+    phase_colors = [COL_RED, "#8C564B", COL_ORANGE, "#756BB1", COL_PY, "#4CAF50"]
     impl_short = [
-        ("python_cumulate", "py"),
         ("cpp_cumulate",    "cpp"),
+        ("python_cumulate", "py"),
     ]
     sorted_ks = [k for k in sorted(k_values)
                  if any(med("algorithm_core_seconds", impl=impl, k=k) is not None
@@ -1041,7 +1036,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
     )
     if sorted_ks and have_both:
         fig, (ax_core, ax_full) = plt.subplots(
-            1, 2, figsize=(9.6, 3.6), gridspec_kw={"width_ratios": [1.0, 1.55]})
+            1, 2, figsize=(9.6, 3.7), gridspec_kw={"width_ratios": [1.0, 1.55]})
 
         # ---- Panel (a): algorithm-core comparison (log scale) ----
         xs = np.arange(len(sorted_ks))
@@ -1053,7 +1048,7 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         ax_core.bar(xs - width/2, core_py,  width, label="Python Cumulate",
                     color=COL_PY, edgecolor="black", linewidth=0.4)
         ax_core.bar(xs + width/2, core_cpp, width, label="C++ Cumulate",
-                    color=COL_RED, edgecolor="black", linewidth=0.4)
+                    color=COL_CPP, edgecolor="black", linewidth=0.4)
         ax_core.set_yscale("log")
         ax_core.set_xticks(xs, [f"K={k}" for k in sorted_ks])
         ax_core.set_ylabel("Algorithm-core time (s, log)")
@@ -1067,36 +1062,31 @@ def _make_k_sweep_figures(rows: List[Dict[str, Any]], out_dir: Path, args: Any) 
         ax_core.legend(frameon=True, fontsize=8.5, loc="upper left")
         _paper_axes(ax_core)
 
-        # ---- Panel (b): full-pipeline stacked phases, core hatched ----
+        # ---- Panel (b): pipeline phase breakdown (original look) ----
         bar_labels: List[str] = []
-        stack_specs  = core_specs + prep_specs
-        stack_colors = core_colors + prep_colors
-        stack_hatch  = ["//"] * len(core_specs) + [None] * len(prep_specs)
-        phase_vals: Dict[str, List[float]] = {name: [] for _, name in stack_specs}
+        phase_vals: Dict[str, List[float]] = {name: [] for _, name in phase_specs}
         for k in sorted_ks:
             for impl, short in impl_short:
                 if med("algorithm_core_seconds", impl=impl, k=k) is None:
                     continue
-                bar_labels.append(f"K{k}\n{short}")
-                for field, name in stack_specs:
+                bar_labels.append(f"k{k}\n{short}")
+                for field, name in phase_specs:
                     phase_vals[name].append(med(field, impl=impl, k=k) or 0.0)
 
         bottom = np.zeros(len(bar_labels))
-        for (field, name), color, hatch in zip(stack_specs, stack_colors, stack_hatch):
+        for (field, name), color in zip(phase_specs, phase_colors):
             vals_p = np.array(phase_vals[name])
             ax_full.bar(bar_labels, vals_p, bottom=bottom, label=name,
-                        color=color, edgecolor="black", linewidth=0.2,
-                        hatch=hatch)
+                        color=color, edgecolor="black", linewidth=0.2)
             bottom += vals_p
-        ax_full.set_ylim(0, bottom.max() * 1.18)
-        ax_full.set_ylabel("Full-pipeline phase time (s)")
-        ax_full.set_title("(b) Phase breakdown (hatched = algorithm core)",
-                          fontsize=10, pad=34)
+        ax_full.set_ylim(0, bottom.max() * 1.15)
+        ax_full.set_ylabel("Pipeline phase time (s)")
+        ax_full.set_title("(b) Phase breakdown", fontsize=10, pad=30)
         ax_full.legend(ncol=3, loc="lower center", bbox_to_anchor=(0.5, 1.005),
-                       frameon=True, fontsize=7.8)
+                       frameon=True, fontsize=8)
         _paper_axes(ax_full)
 
-        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.92))
+        fig.tight_layout(rect=(0.0, 0.0, 1.0, 0.94))
         _save_figure_pdf(fig, figs_dir / "phase_breakdown_baseline.pdf")
         plt.close(fig)
 
@@ -1175,25 +1165,16 @@ def _make_support_sweep_figures(
         plt.close(fig)
 
     # ── Figure 6: Efficiency scatter (rules found vs algorithm time) ──────────
-    # Combine observed Cumulate configurations from the K-sweep and support-sweep.
-    # mlxtend is a flat baseline, so keep only its K=1 k-sweep point.
+    # Combine observed configurations from the K-sweep and support-sweep for all
+    # three implementations, matching the paper's Figure 6 caption. Note that
+    # mlxtend configurations yielding 0 rules (e.g. s=0.05, s=0.03) cannot be
+    # drawn on the log-scale rules axis, so only its rule-producing points show.
     all_rows: List[Dict[str, Any]] = list(good)
     if k_sweep_csv is not None and k_sweep_csv.exists():
         try:
             all_rows.extend(pd.read_csv(k_sweep_csv).to_dict(orient="records"))
         except Exception:
             pass
-
-    def _is_mlxtend_k1_baseline(r: Dict[str, Any]) -> bool:
-        if str(r.get("implementation", "")) != "mlxtend_flat":
-            return True
-        try:
-            k_level = int(float(r.get("k_levels")))
-        except (TypeError, ValueError):
-            return False
-        return str(r.get("experiment", "")) == "k_sweep" and k_level == 1
-
-    all_rows = [r for r in all_rows if _is_mlxtend_k1_baseline(r)]
 
     # Aggregate repeats: median time per unique (implementation, k_levels, min_support) condition
     if all_rows:
@@ -1208,7 +1189,7 @@ def _make_support_sweep_figures(
         "cpp_cumulate":    {"color": OI_BLUISH_GREEN, "marker": "o", "label": "C++ Cumulate"},
         "python_cumulate": {"color": OI_SKY_BLUE,     "marker": "^", "label": "Python Cumulate"},
         "mlxtend_basic":   {"color": OI_VERMILLION,   "marker": "s", "label": "mlxtend (basic)"},
-        "mlxtend_flat":    {"color": OI_VERMILLION,   "marker": "s", "label": "mlxtend flat (K=1)"},
+        "mlxtend_flat":    {"color": OI_VERMILLION,   "marker": "s", "label": "mlxtend (flat)"},
     }
     scatter: Dict[str, tuple] = {}
     for r in all_rows:
